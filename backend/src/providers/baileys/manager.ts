@@ -216,49 +216,59 @@ export async function ensure(sessionId: string): Promise<WASocket> {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify' && type !== 'append') return;
     for (const m of messages) {
-      if (!m.message) continue;
-      const identity = extractPreferredPhoneFromMessage(m);
-      if (!identity?.phone) continue;
-      const isGroup = identity.isGroup;
-      const phone = identity.phone;
-      const content = extractText(m.message);
-      if (!content.trim()) continue;
-      const direction = m.key.fromMe ? 'outbound' : 'inbound';
-      const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
+      try {
+        if (!m.message) continue;
+        const identity = extractPreferredPhoneFromMessage(m);
+        if (!identity?.phone) continue;
+        const isGroup = identity.isGroup;
+        const phone = identity.phone;
+        const content = extractText(m.message);
+        if (!content.trim()) continue;
+        const direction = m.key.fromMe ? 'outbound' : 'inbound';
+        const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
+        const waMessageId = m.key.id ?? undefined;
 
-      // upsert conversation
-      const conv = await prisma.conversation.upsert({
-        where: { sessionId_phone: { sessionId, phone } },
-        create: {
-          sessionId,
-          phone,
-          contactName: maybeName ?? phone,
-          lastMessage: content,
-          unreadCount: m.key.fromMe ? 0 : 1,
-          isGroup,
-          status: 'open',
-        },
-        update: {
-          lastMessage: content,
-          unreadCount: m.key.fromMe ? undefined : { increment: 1 },
-          contactName: maybeName ?? undefined,
-        },
-      });
+        // upsert conversation
+        const conv = await prisma.conversation.upsert({
+          where: { sessionId_phone: { sessionId, phone } },
+          create: {
+            sessionId,
+            phone,
+            contactName: maybeName ?? phone,
+            lastMessage: content,
+            unreadCount: m.key.fromMe ? 0 : 1,
+            isGroup,
+            status: 'open',
+          },
+          update: {
+            lastMessage: content,
+            unreadCount: m.key.fromMe ? undefined : { increment: 1 },
+            contactName: maybeName ?? undefined,
+          },
+        });
 
-      const saved = await prisma.message.create({
-        data: {
-          conversationId: conv.id,
-          waMessageId: m.key.id ?? undefined,
-          direction,
-          content,
-          type: detectType(m.message),
-          status: m.key.fromMe ? 'sent' : 'delivered',
-          timestamp: m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000) : undefined,
-        },
-      });
+        if (waMessageId) {
+          const existing = await prisma.message.findUnique({ where: { waMessageId } });
+          if (existing) continue;
+        }
 
-      emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: saved });
-      emitTo(`session:${sessionId}`, { type: 'message.new', conversationId: conv.id, message: saved });
+        const saved = await prisma.message.create({
+          data: {
+            conversationId: conv.id,
+            waMessageId,
+            direction,
+            content,
+            type: detectType(m.message),
+            status: m.key.fromMe ? 'sent' : 'delivered',
+            timestamp: m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000) : undefined,
+          },
+        });
+
+        emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: saved });
+        emitTo(`session:${sessionId}`, { type: 'message.new', conversationId: conv.id, message: saved });
+      } catch (err) {
+        logger.warn({ err, sessionId }, 'failed to persist upserted message');
+      }
     }
   });
 

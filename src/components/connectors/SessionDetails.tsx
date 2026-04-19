@@ -154,6 +154,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
               variant="outline"
               className="h-8 bg-blue-500/10 border-blue-500/20 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-all"
               onClick={() => onAction('sync', session)}
+              disabled={session.status !== 'connected'}
             >
               <RefreshCcw className="w-3 h-3 mr-1.5" /> Sincronizar
             </Button>

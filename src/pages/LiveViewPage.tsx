@@ -35,6 +35,22 @@ export const LiveViewPage: React.FC = () => {
   const activeSession =
     sessions.find((s) => s.status === 'connected') || sessions.find((s) => s.id === selectedSessionId) || null;
 
+  const formatPhoneDisplay = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return raw;
+    let normalized = digits;
+    if (!normalized.startsWith('55') && (normalized.length === 10 || normalized.length === 11)) {
+      normalized = `55${normalized}`;
+    }
+    if (normalized.startsWith('55') && normalized.length === 13) {
+      return `+55 ${normalized.slice(2, 4)} ${normalized.slice(4, 9)}-${normalized.slice(9)}`;
+    }
+    if (normalized.startsWith('55') && normalized.length === 12) {
+      return `+55 ${normalized.slice(2, 4)} ${normalized.slice(4, 8)}-${normalized.slice(8)}`;
+    }
+    return `+${normalized}`;
+  };
+
   const reloadSelectedMessages = async (chatId: string) => {
     try {
       const msgs = await conversationService.getMessages(chatId, { limit: 50 });
@@ -96,11 +112,12 @@ export const LiveViewPage: React.FC = () => {
 
     try {
       const conv = conversations.find((c) => c.id === chatId);
-      if (!activeSession?.id || !conv?.phoneNumber) throw new Error('Conversa sem destino válido');
+      const targetPhone = conv?.rawPhone || conv?.phoneNumber;
+      if (!activeSession?.id || !targetPhone) throw new Error('Conversa sem destino válido');
 
       await apiClient.post('/api/messages/send', {
         sessionId: activeSession.id,
-        phone: conv.phoneNumber,
+        phone: targetPhone,
         content,
       });
 
@@ -111,13 +128,18 @@ export const LiveViewPage: React.FC = () => {
       );
 
       await reloadSelectedMessages(chatId);
-    } catch {
+    } catch (error: any) {
+      const message = typeof error?.message === 'string' && error.message
+        ? error.message.includes('rate/min exceeded')
+          ? 'Limite por minuto atingido. Aguarde alguns segundos.'
+          : error.message
+        : 'Falha ao enviar';
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === chatId
             ? {
                 ...conv,
-                messages: conv.messages.map((m) => (m.id === msgId ? { ...m, status: 'failed', error: 'Falha ao enviar' } : m)),
+                messages: conv.messages.map((m) => (m.id === msgId ? { ...m, status: 'failed', error: message } : m)),
               }
             : conv,
         ),
@@ -153,7 +175,8 @@ export const LiveViewPage: React.FC = () => {
             return {
               id: c.id,
               contactName: c.contactName,
-              phoneNumber: c.phone ?? '',
+              phoneNumber: formatPhoneDisplay(c.phone ?? ''),
+              rawPhone: c.phone ?? '',
               avatar: c.avatar,
               lastMessage: isGroup ? 'Toque para abrir mensagens do grupo' : c.lastMessage,
               lastMessageTime: c.updatedAt,

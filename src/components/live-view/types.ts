@@ -17,6 +17,7 @@ export interface LiveConversation {
   id: string;
   contactName: string;
   phoneNumber: string;
+  rawPhone?: string;
   avatar?: string;
   lastMessage?: string;
   lastMessageTime?: string;

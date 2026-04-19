@@ -1,6 +1,6 @@
 import { prisma } from '../../db/client.js';
 import * as baileys from '../../providers/baileys/manager.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError, ValidationError } from '../../lib/errors.js';
 
 export function toApi(s: any) {
   return {
@@ -196,7 +196,7 @@ export async function syncWhatsApp(userId: string, id: string) {
   await assertSessionOwnership(userId, id);
   const session = await prisma.session.findUnique({ where: { id } });
   if (!session) throw new NotFoundError('Sessão não encontrada');
-  if (session.status !== 'connected') throw new Error('Sessão não conectada');
+  if (session.status !== 'connected') throw new ValidationError('Sessão não conectada');
 
   await prisma.session.update({
     where: { id },
