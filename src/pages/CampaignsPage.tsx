@@ -62,16 +62,16 @@ import {
   PopoverTrigger,
 } from '../components/ui/popover';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
-import { mockCampaigns, mockTemplates } from '../mock/data';
 import { cn, formatDate } from '../lib/utils';
 import { FireButton } from "../components/ui/FireButton";
 import { useAppStore } from '../store';
 import { useSessionStore } from '../store/useSessionStore';
 import { CampaignFiringModal } from '../components/campaigns/CampaignFiringModal';
-import { CampaignStatus, CampaignChannel, Campaign, Contact, CampaignButton } from '../types';
+import { CampaignStatus, CampaignChannel, Campaign, Contact, CampaignButton, MessageTemplate } from '../types';
 import { campaignService } from '../services/campaignService';
 import { contactService } from '../services/contactService';
 import { sessionService } from '../services/sessionService';
+import { templateService } from '../services/templateService';
 import { Switch } from '../components/ui/switch';
 import { Checkbox } from '../components/ui/checkbox';
 import { 
@@ -121,7 +121,7 @@ const toCampaignModel = (payload: any): Campaign => ({
   name: payload.name,
   channel: (payload.channel as CampaignChannel) ?? 'whatsapp',
   status: (payload.status as CampaignStatus) ?? 'draft',
-  templateId: payload.templateId ?? mockTemplates[0]?.id ?? 'template-1',
+  templateId: payload.templateId ?? '',
   segmentId: payload.segmentId ?? '1',
   messageContent: payload.messageContent ?? undefined,
   scheduledAt: payload.scheduledAt ?? undefined,
@@ -148,8 +148,9 @@ const WhatsAppPreview: React.FC<{
   onSave?: (updatedCampaign: Campaign) => void;
   onDelete?: (id: string) => void;
 }> = ({ campaign, onBack, onSave, onDelete }) => {
-  const template = mockTemplates.find(t => t.id === campaign.templateId);
-  
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const template = templates.find(t => t.id === campaign.templateId);
+
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(campaign.name);
   const [editedMessage, setEditedMessage] = useState(campaign.messageContent || template?.content || "");
@@ -185,14 +186,9 @@ const WhatsAppPreview: React.FC<{
   const [selectedImports, setSelectedImports] = useState<string[]>([]);
   const [availableContacts, setAvailableContacts] = useState<Contact[]>([]);
   const [isStartingCampaign, setIsStartingCampaign] = useState(false);
-  
-  const mockImports = [
-    { id: '1', name: 'Leads Evento Tech', count: 1500 },
-    { id: '2', name: 'Base Clientes Antigos', count: 5000 },
-    { id: '3', name: 'Lista Teste', count: 100 },
-  ];
+  const [importsList, setImportsList] = useState<{ id: string; name: string; count: number }[]>([]);
 
-  const totalSelectedContacts = mockImports
+  const totalSelectedContacts = importsList
     .filter(imp => selectedImports.includes(imp.id))
     .reduce((acc, curr) => acc + curr.count, 0);
 
@@ -327,6 +323,14 @@ const WhatsAppPreview: React.FC<{
       .list({ pageSize: 500 })
       .then((items) => setAvailableContacts(items))
       .catch(() => setAvailableContacts([]));
+    templateService
+      .list()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+    contactService
+      .listImports()
+      .then(items => setImportsList(items.map(i => ({ id: i.id, name: i.name, count: i.contactCount ?? 0 }))))
+      .catch(() => setImportsList([]));
   }, []);
 
   useEffect(() => {
@@ -397,14 +401,13 @@ const WhatsAppPreview: React.FC<{
   };
 
   const selectAllImports = () => {
-    if (selectedImports.length === mockImports.length) {
+    if (selectedImports.length === importsList.length) {
       setSelectedImports([]);
     } else {
-      setSelectedImports(mockImports.map(i => i.id));
+      setSelectedImports(importsList.map(i => i.id));
     }
   };
 
-  // const template = mockTemplates.find(t => t.id === campaign.templateId); // already declared at top
   const StatusIcon = statusMap[campaign.status].icon;
 
   return (
@@ -613,7 +616,7 @@ const WhatsAppPreview: React.FC<{
                     <div className="pt-2 border-t border-primary/10">
                       <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">Listas Utilizadas</p>
                       <div className="flex flex-wrap gap-1">
-                        {mockImports.filter(i => selectedImports.includes(i.id)).map(imp => (
+                        {importsList.filter(i => selectedImports.includes(i.id)).map(imp => (
                           <Badge key={imp.id} variant="outline" className="text-[9px] py-0 h-4">{imp.name}</Badge>
                         ))}
                       </div>
@@ -698,11 +701,11 @@ const WhatsAppPreview: React.FC<{
                       <div className="p-2 bg-muted/50 border-b flex justify-between items-center">
                         <span className="text-xs font-bold text-muted-foreground uppercase">{selectedImports.length} selecionados</span>
                         <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={selectAllImports}>
-                          {selectedImports.length === mockImports.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
+                          {selectedImports.length === importsList.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
                         </Button>
                       </div>
                       <div className="overflow-y-auto p-1">
-                        {mockImports.map(imp => (
+                        {importsList.map(imp => (
                           <div 
                             key={imp.id}
                             onClick={() => toggleImport(imp.id)}
@@ -1193,21 +1196,19 @@ export const CampaignsPage: React.FC = () => {
       const items = await campaignService.list();
       setCampaigns(items.map(toCampaignModel));
     } catch {
-      setCampaigns(mockCampaigns);
+      setCampaigns([]);
     } finally {
       setIsLoadingCampaigns(false);
     }
   };
 
   const handleCreateCampaign = async () => {
-    const template = mockTemplates[0];
     try {
       const created = await campaignService.create({
         name: `Nova Campanha ${campaigns.length + 1}`,
         channel: 'whatsapp',
-        templateId: template?.id,
         segmentId: '1',
-        messageContent: template?.content ?? '',
+        messageContent: '',
         intervalSec: 15,
       });
       const normalized = toCampaignModel(created);
@@ -1219,7 +1220,7 @@ export const CampaignsPage: React.FC = () => {
         name: `Nova Campanha ${campaigns.length + 1}`,
         channel: 'whatsapp',
         status: 'draft',
-        templateId: template?.id ?? 'template-1',
+        templateId: '',
         segmentId: '1',
         sentCount: 0,
         deliveredCount: 0,

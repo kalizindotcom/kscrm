@@ -1,4 +1,4 @@
-import { Campaign, Contact, WhatsAppGroup, Integration } from "@/types";
+import { apiClient } from './apiClient';
 
 export interface CampaignLog {
   id: string;
@@ -8,14 +8,25 @@ export interface CampaignLog {
   status: 'success' | 'failed';
   errorMessage?: string;
   sentAt: string;
-  responseBody?: string;
 }
 
-export interface DetailedCampaign extends Campaign {
-  logs: CampaignLog[];
+export interface DetailedCampaign {
+  id: string;
+  name: string;
+  channel: string;
+  status: string;
+  templateId?: string;
+  segmentId?: string;
+  sentCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  responseCount: number;
+  createdAt: string;
+  updatedAt: string;
   totalProcessingTime: string;
   responsibleUser: string;
   origin: string;
+  logs: CampaignLog[];
 }
 
 export interface ContactMetrics {
@@ -67,147 +78,88 @@ export interface GroupMetrics {
   history: { date: string; members: number }[];
 }
 
-// Mock Data Generators
-const generateCampaignLogs = (campaignId: string, count: number): CampaignLog[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `log-${campaignId}-${i}`,
-    campaignId,
-    contactName: `Contato ${i + 1}`,
-    phone: `551199999${i.toString().padStart(4, '0')}`,
-    status: Math.random() > 0.1 ? 'success' : 'failed',
-    errorMessage: Math.random() > 0.9 ? 'Número inválido' : Math.random() > 0.9 ? 'Sessão desconectada' : undefined,
-    sentAt: new Date().toISOString(),
-    responseBody: '{"status": "delivered", "id": "msg_123"}'
-  }));
-};
-
-export const mockCampaigns: DetailedCampaign[] = [
-  {
-    id: '1',
-    name: 'Promoção de Verão',
-    channel: 'whatsapp',
-    status: 'completed',
-    templateId: 'temp1',
-    segmentId: 'seg1',
-    sentCount: 1500,
-    deliveredCount: 1450,
-    failedCount: 50,
-    responseCount: 120,
-    totalProcessingTime: '12m 30s',
-    responsibleUser: 'Admin',
-    origin: 'Importação CSV',
-    createdAt: '2023-11-01T10:00:00Z',
-    updatedAt: '2023-11-01T10:12:30Z',
-    logs: generateCampaignLogs('1', 50)
-  },
-  {
-    id: '2',
-    name: 'Aviso de Manutenção',
-    channel: 'whatsapp',
-    status: 'completed',
-    templateId: 'temp2',
-    segmentId: 'seg2',
-    sentCount: 800,
-    deliveredCount: 795,
-    failedCount: 5,
-    responseCount: 10,
-    totalProcessingTime: '5m 15s',
-    responsibleUser: 'Admin',
-    origin: 'Manual',
-    createdAt: '2023-11-05T14:00:00Z',
-    updatedAt: '2023-11-05T14:05:15Z',
-    logs: generateCampaignLogs('2', 20)
-  }
-];
-
-export const mockContactMetrics: ContactMetrics = {
-  addedToday: 45,
-  added7d: 320,
-  added30d: 1250,
-  deletedToday: 2,
-  totalContacts: 5430,
-  totalFiles: 28,
-  messagesSent: 15420,
-  messagesReceived: 3210,
-  manualContacts: 450,
-  importedViaFile: 4980,
-  duplicatesDetected: 15,
-  invalidNumbers: 84,
-  validNumbers: 5346,
-  withName: 5100,
-  withoutName: 330,
-  withTags: 4200,
-  withoutTags: 1230,
-  activeLast30d: 3100,
-  inactiveLongTime: 1100,
-  blocked: 42
-};
-
-export const mockSessionMetrics: SessionMetrics = {
-  totalSessions: 12,
-  activeSessions: 10,
-  inactiveSessions: 1,
-  errorSessions: 1,
-  disconnectedSessions: 0,
-  avgStability: '98.5%',
-  avgReconnectionTime: '14s',
-  totalReconnections: 5,
-  availabilityRate: 99.2,
-  uptime: '15d 4h 22m',
-  downtime: '1h 12m',
-  logs: [
-    { timestamp: '2023-11-08T09:00:00Z', action: 'Conexão', status: 'Sucesso', details: 'Sessão autenticada com sucesso' },
-    { timestamp: '2023-11-08T10:30:00Z', action: 'Desconexão', status: 'Alerta', details: 'Perda de conexão com o dispositivo' },
-    { timestamp: '2023-11-08T10:31:00Z', action: 'Reconexão', status: 'Sucesso', details: 'Conexão restabelecida automaticamente' },
-  ]
-};
-
-export const mockGroupMetrics: GroupMetrics = {
-  totalGroups: 85,
-  activeGroups: 82,
-  syncedToday: 12,
-  failedSync: 1,
-  avgMembers: 145,
-  totalMembers: 12325,
-  exportedRecently: 5,
-  history: [
-    { date: '2023-11-01', members: 11000 },
-    { date: '2023-11-02', members: 11200 },
-    { date: '2023-11-03', members: 11500 },
-    { date: '2023-11-04', members: 11800 },
-    { date: '2023-11-05', members: 12100 },
-    { date: '2023-11-06', members: 12325 },
-  ]
-};
-
 export const reportsService = {
-  getCampaigns: async () => {
-    await new Promise(resolve => setTimeout(resolve, 800));
-    return mockCampaigns;
+  getCampaigns: async (): Promise<DetailedCampaign[]> => {
+    const raw = await apiClient.get<any[]>('/api/reports/campaigns');
+    return raw.map((c) => ({
+      ...c,
+      totalProcessingTime: c.sentCount > 0 ? `${Math.round(c.sentCount * 0.3)}s` : '0s',
+      responsibleUser: 'Admin',
+      origin: 'Sistema',
+      logs: [],
+    }));
   },
-  getContactMetrics: async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-    return mockContactMetrics;
+
+  getContactMetrics: async (): Promise<ContactMetrics> => {
+    const raw = await apiClient.get<{ total: number; active: number; inactive: number; pending: number }>('/api/reports/contacts');
+    return {
+      totalContacts: raw.total,
+      addedToday: 0,
+      added7d: 0,
+      added30d: 0,
+      deletedToday: 0,
+      totalFiles: 0,
+      messagesSent: 0,
+      messagesReceived: 0,
+      manualContacts: 0,
+      importedViaFile: 0,
+      duplicatesDetected: 0,
+      invalidNumbers: 0,
+      validNumbers: raw.active,
+      withName: raw.active,
+      withoutName: raw.inactive + raw.pending,
+      withTags: 0,
+      withoutTags: raw.total,
+      activeLast30d: raw.active,
+      inactiveLongTime: raw.inactive,
+      blocked: 0,
+    };
   },
-  getSessionMetrics: async () => {
-    await new Promise(resolve => setTimeout(resolve, 700));
-    return mockSessionMetrics;
+
+  getSessionMetrics: async (): Promise<SessionMetrics> => {
+    const raw = await apiClient.get<any>('/api/reports/sessions');
+    const byStatus: Record<string, number> = raw.byStatus ?? {};
+    return {
+      totalSessions: raw.total ?? 0,
+      activeSessions: byStatus['connected'] ?? 0,
+      inactiveSessions: byStatus['disconnected'] ?? 0,
+      errorSessions: byStatus['error'] ?? 0,
+      disconnectedSessions: byStatus['disconnected'] ?? 0,
+      avgStability: `${raw.healthAvg ?? 0}%`,
+      avgReconnectionTime: '—',
+      totalReconnections: raw.reconnections ?? 0,
+      availabilityRate: raw.healthAvg ?? 0,
+      uptime: '—',
+      downtime: '—',
+      logs: [],
+    };
   },
-  getGroupMetrics: async () => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return mockGroupMetrics;
+
+  getGroupMetrics: async (): Promise<GroupMetrics> => {
+    const raw = await apiClient.get<{ total: number; membersTotal: number; adminOf: number }>('/api/reports/groups');
+    return {
+      totalGroups: raw.total ?? 0,
+      activeGroups: raw.total ?? 0,
+      syncedToday: 0,
+      failedSync: 0,
+      avgMembers: raw.total > 0 ? Math.round((raw.membersTotal ?? 0) / raw.total) : 0,
+      totalMembers: raw.membersTotal ?? 0,
+      exportedRecently: 0,
+      history: [],
+    };
   },
+
   exportCSV: (data: any[], filename: string) => {
-    console.log(`Exportando ${filename}...`, data);
+    if (!data.length) return;
     const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(obj => Object.values(obj).join(',')).join('\n');
+    const rows = data.map((obj) => Object.values(obj).join(',')).join('\n');
     const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
     const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${filename}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `${filename}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }
+  },
 };

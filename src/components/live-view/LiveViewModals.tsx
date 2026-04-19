@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   Download, 
@@ -35,6 +35,8 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { LiveConversation } from './types';
 import { cn } from '@/lib/utils';
+import { campaignService } from '@/services/campaignService';
+import type { Campaign } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface LiveViewModalsProps {
@@ -86,13 +88,11 @@ export const LiveViewModals: React.FC<LiveViewModalsProps> = ({
   };
 
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
-  const mockCampaigns = [
-    { id: '1', name: 'Boas-vindas Premium', type: 'Sequência', status: 'Ativa' },
-    { id: '2', name: 'Recuperação de Carrinho', type: 'Trigger', status: 'Ativa' },
-    { id: '3', name: 'Promoção Relâmpago Outubro', type: 'Broadcast', status: 'Rascunho' },
-    { id: '4', name: 'NPS Pós-Venda', type: 'Pesquisa', status: 'Ativa' },
-  ];
+  useEffect(() => {
+    campaignService.list().then(setCampaigns).catch(() => setCampaigns([]));
+  }, []);
 
   return (
     <>
@@ -116,14 +116,14 @@ export const LiveViewModals: React.FC<LiveViewModalsProps> = ({
             </div>
 
             <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {mockCampaigns.map((camp) => (
+              {campaigns.map((camp) => (
                 <button
                   key={camp.id}
                   onClick={() => setSelectedCampaign(camp.id)}
                   className={cn(
                     "flex items-center justify-between p-4 rounded-2xl border transition-all text-left",
-                    selectedCampaign === camp.id 
-                      ? "bg-primary/10 border-primary shadow-lg shadow-primary/5 scale-[1.02]" 
+                    selectedCampaign === camp.id
+                      ? "bg-primary/10 border-primary shadow-lg shadow-primary/5 scale-[1.02]"
                       : "bg-white/5 border-white/10 hover:border-primary/30 hover:bg-white/10"
                   )}
                 >
@@ -136,7 +136,7 @@ export const LiveViewModals: React.FC<LiveViewModalsProps> = ({
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-white">{camp.name}</h4>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{camp.type}</p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{camp.channel}</p>
                     </div>
                   </div>
                   {selectedCampaign === camp.id && (

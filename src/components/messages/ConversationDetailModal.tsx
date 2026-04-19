@@ -52,7 +52,11 @@ import { toast } from 'sonner';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
-import { mockCampaigns, mockTemplates } from '../../mock/data';
+import { conversationService } from '../../services/conversationService';
+import { campaignService } from '../../services/campaignService';
+import { templateService } from '../../services/templateService';
+import { apiClient } from '../../services/apiClient';
+import { useSessionStore } from '../../store/useSessionStore';
 
 interface ConversationDetailModalProps {
   conversation: Conversation;
@@ -82,15 +86,8 @@ const formatWhatsAppMessage = (text: string) => {
   return <div dangerouslySetInnerHTML={{ __html: formatted }} />;
 };
 
-const mockMessages: Message[] = [
-  { id: '1', conversationId: '1', direction: 'outbound', content: 'Olá! Como posso ajudar?', type: 'text', timestamp: new Date(Date.now() - 3600000 * 2).toISOString(), status: 'read' },
-  { id: '2', conversationId: '1', direction: 'inbound', content: 'Oi, vi a campanha Black Friday.', type: 'text', timestamp: new Date(Date.now() - 3600000).toISOString(), status: 'read' },
-  { id: '3', conversationId: '1', direction: 'outbound', content: 'Que ótimo! Temos descontos de até 50%.', type: 'text', timestamp: new Date(Date.now() - 1800000).toISOString(), status: 'delivered' },
-  { id: '4', conversationId: '1', direction: 'inbound', content: 'Qual o valor do plano Pro?', type: 'text', timestamp: new Date(Date.now() - 600000).toISOString(), status: 'read' },
-];
-
 export const ConversationDetailModal: React.FC<ConversationDetailModalProps> = ({ conversation, isOpen, onClose, onDelete }) => {
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -106,6 +103,8 @@ export const ConversationDetailModal: React.FC<ConversationDetailModalProps> = (
   const [isProfilePicModalOpen, setIsProfilePicModalOpen] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isCampaignPreviewOpen, setIsCampaignPreviewOpen] = useState(false);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const { sessions } = useSessionStore();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [importForm, setImportForm] = useState({ 
@@ -121,47 +120,45 @@ export const ConversationDetailModal: React.FC<ConversationDetailModalProps> = (
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Simulate contact typing
   useEffect(() => {
-    if (isOpen) {
-      const timer = setTimeout(() => setIsTyping(true), 2000);
-      const stopTimer = setTimeout(() => setIsTyping(false), 5000);
-      return () => {
-        clearTimeout(timer);
-        clearTimeout(stopTimer);
-      };
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    conversationService.getMessages(conversation.id)
+      .then(setMessages)
+      .catch(() => setMessages([]));
+    campaignService.list()
+      .then(setCampaigns)
+      .catch(() => setCampaigns([]));
+  }, [isOpen, conversation.id]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
-    
+    const content = inputValue;
     const newMessage: Message = {
       id: Date.now().toString(),
       conversationId: conversation.id,
       direction: 'outbound',
-      content: inputValue,
+      content,
       type: 'text',
       timestamp: new Date().toISOString(),
       status: 'sent'
     };
-    
-    setMessages([...messages, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
     setInputValue('');
-    
-    // Simulate message status updates
-    setTimeout(() => {
-      setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'delivered' } : m));
-    }, 1500);
-    
-    setTimeout(() => {
-      setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'read' } : m));
-    }, 3000);
+    try {
+      const sessionId = sessions.find(s => s.status === 'connected')?.id;
+      await apiClient.post('/api/messages/send', {
+        sessionId,
+        phone: conversation.phone,
+        content,
+      });
+    } catch {
+      setMessages(prev => prev.map(m => m.id === newMessage.id ? { ...m, status: 'failed' } : m));
+      toast.error('Falha ao enviar mensagem.');
+    }
   };
 
   const handleDownloadProfilePic = () => {
@@ -793,8 +790,8 @@ export const ConversationDetailModal: React.FC<ConversationDetailModalProps> = (
               <div className="space-y-4">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Selecione uma Campanha</Label>
                 <div className="grid gap-3">
-                  {mockCampaigns.map(campaign => {
-                    const template = mockTemplates.find(t => t.id === campaign.templateId);
+                  {campaigns.map(campaign => {
+                    const template = undefined;
                     return (
                       <button
                         key={campaign.id}
@@ -874,7 +871,7 @@ export const ConversationDetailModal: React.FC<ConversationDetailModalProps> = (
                           )}
 
                           <div className="px-1 text-[14px] leading-relaxed text-zinc-800 dark:text-zinc-100 whitespace-pre-wrap">
-                            {formatWhatsAppMessage(mockTemplates.find(t => t.id === selectedCampaign?.templateId)?.content.replace('{{nome}}', conversation.contactName) || '')}
+                            {formatWhatsAppMessage(selectedCampaign?.messageContent?.replace('{{nome}}', conversation.contactName) || '')}
                           </div>
                           
                           <div className="flex items-center justify-end gap-1 px-1 pb-1 opacity-50">

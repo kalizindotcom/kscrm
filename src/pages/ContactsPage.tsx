@@ -42,53 +42,19 @@ export const ContactsPage: React.FC = () => {
   const [selectedImport, setSelectedImport] = useState<ContactImport | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   
-  // Mock imports data
-  const [imports, setImports] = useState<ContactImport[]>([
-    {
-      id: '1',
-      name: 'Leads Evento Tech',
-      filename: 'leads_tech.csv',
-      status: 'completed',
-      contactCount: 1500,
-      processedCount: 1500,
-      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    },
-    {
-      id: '2',
-      name: 'Base Clientes Antigos',
-      filename: 'clientes_v1.xlsx',
-      status: 'processing',
-      contactCount: 5000,
-      processedCount: 2350,
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      name: 'Lista Teste',
-      filename: 'teste.csv',
-      status: 'pending',
-      contactCount: 100,
-      processedCount: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '4',
-      name: 'Importação Errada',
-      filename: 'corrompido.xlsx',
-      status: 'failed',
-      contactCount: 450,
-      processedCount: 12,
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    }
-  ]);
+  const [imports, setImports] = useState<ContactImport[]>([]);
 
   useEffect(() => {
     loadContacts();
+    loadImports();
   }, []);
+
+  useEffect(() => {
+    const hasPending = imports.some(i => i.status === 'pending' || i.status === 'processing');
+    if (!hasPending) return;
+    const interval = setInterval(loadImports, 5000);
+    return () => clearInterval(interval);
+  }, [imports]);
 
   const loadContacts = async () => {
     setLoading(true);
@@ -102,19 +68,22 @@ export const ContactsPage: React.FC = () => {
     }
   };
 
-  const handleImport = (files: File[], name: string) => {
-    // Adicionar nova importação simulada
-    const newImport: ContactImport = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: name,
-      filename: files[0].name,
-      status: 'pending',
-      contactCount: Math.floor(Math.random() * 1000) + 100,
-      processedCount: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setImports([newImport, ...imports]);
+  const loadImports = async () => {
+    try {
+      const data = await contactService.listImports();
+      setImports(data);
+    } catch (error) {
+      console.error('Failed to load imports', error);
+    }
+  };
+
+  const handleImport = async (files: File[], name: string) => {
+    try {
+      const newImport = await contactService.importList(files[0], name);
+      setImports(prev => [newImport, ...prev]);
+    } catch (error) {
+      console.error('Failed to import contacts', error);
+    }
   };
 
   const filteredContacts = contacts.filter(c => 

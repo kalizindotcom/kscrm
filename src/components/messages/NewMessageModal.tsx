@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Plus, 
-  Trash2, 
-  Send, 
-  CheckCircle2, 
-  AlertCircle, 
-  Loader2, 
+import {
+  X,
+  Plus,
+  Trash2,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
   Smartphone,
   Globe,
   MessageSquare
 } from 'lucide-react';
+import { useSessionStore } from '../../store/useSessionStore';
+import { apiClient } from '../../services/apiClient';
 import { 
   Dialog, 
   DialogContent, 
@@ -40,6 +42,10 @@ export const NewMessageModal: React.FC<NewMessageModalProps> = ({ isOpen, onClos
   const [isValidating, setIsValidating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{ id: string; success: boolean; message: string }[] | null>(null);
+  const [messageContent, setMessageContent] = useState('');
+  const [selectedSessionId, setSelectedSessionId] = useState('');
+  const { sessions } = useSessionStore();
+  const connectedSessions = sessions.filter(s => s.status === 'connected');
 
   const addNumber = () => {
     const lastNum = numbers[numbers.length - 1];
@@ -62,23 +68,38 @@ export const NewMessageModal: React.FC<NewMessageModalProps> = ({ isOpen, onClos
   };
 
   const startConversation = async () => {
+    if (!selectedSessionId) {
+      alert('Selecione uma sessão conectada para enviar as mensagens.');
+      return;
+    }
+    if (!messageContent.trim()) {
+      alert('Digite uma mensagem para enviar.');
+      return;
+    }
     setIsValidating(true);
     setProgress(0);
     setResults(null);
 
-    // Simulate validation process
-    for (let i = 1; i <= 100; i++) {
-      await new Promise(resolve => setTimeout(resolve, 30));
-      setProgress(i);
+    const outcomes: { id: string; success: boolean; message: string }[] = [];
+    const total = numbers.length;
+
+    for (let i = 0; i < total; i++) {
+      const n = numbers[i];
+      const to = `${n.countryCode}${n.ddd}${n.number}`.replace(/\D/g, '');
+      try {
+        await apiClient.post('/api/messages/send', {
+          sessionId: selectedSessionId,
+          phone: to,
+          content: messageContent,
+        });
+        outcomes.push({ id: n.id, success: true, message: 'Enviado com sucesso' });
+      } catch (err: any) {
+        outcomes.push({ id: n.id, success: false, message: err?.message ?? 'Falha ao enviar' });
+      }
+      setProgress(Math.round(((i + 1) / total) * 100));
     }
 
-    const mockResults = numbers.map(n => ({
-      id: n.id,
-      success: Math.random() > 0.2,
-      message: n.number.length < 8 ? 'Número inválido' : 'Sucesso'
-    }));
-
-    setResults(mockResults);
+    setResults(outcomes);
     setIsValidating(false);
   };
 
@@ -87,6 +108,8 @@ export const NewMessageModal: React.FC<NewMessageModalProps> = ({ isOpen, onClos
     setIsValidating(false);
     setProgress(0);
     setResults(null);
+    setMessageContent('');
+    setSelectedSessionId('');
   };
 
   const handleClose = () => {
@@ -199,9 +222,38 @@ export const NewMessageModal: React.FC<NewMessageModalProps> = ({ isOpen, onClos
               <span className="text-xs font-semibold text-muted-foreground">Adicionar outro número</span>
             </Button>
 
-            <Button 
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Sessão para Envio</label>
+              <select
+                value={selectedSessionId}
+                onChange={e => setSelectedSessionId(e.target.value)}
+                className="w-full bg-background/50 border border-primary/10 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/40 outline-none"
+              >
+                <option value="">Selecione uma sessão conectada</option>
+                {connectedSessions.map(s => (
+                  <option key={s.id} value={s.id}>{s.name} {s.phoneNumber ? `(${s.phoneNumber})` : ''}</option>
+                ))}
+              </select>
+              {connectedSessions.length === 0 && (
+                <p className="text-[10px] text-destructive">Nenhuma sessão conectada. Conecte primeiro.</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Mensagem</label>
+              <textarea
+                value={messageContent}
+                onChange={e => setMessageContent(e.target.value)}
+                rows={3}
+                className="w-full bg-background/50 border border-primary/10 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/40 outline-none resize-none"
+                placeholder="Digite a mensagem a ser enviada..."
+              />
+            </div>
+
+            <Button
               onClick={startConversation}
               className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 shadow-[0_4px_20px_-5px_rgba(var(--primary),0.5)] transition-all font-bold text-lg flex items-center gap-3 active:scale-[0.98]"
+              disabled={!selectedSessionId || !messageContent.trim()}
             >
               <Send className="w-5 h-5" />
               Iniciar Conversas

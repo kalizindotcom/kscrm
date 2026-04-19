@@ -1,13 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Badge } from '../components/ui/shared';
-import { 
-  Users, 
-  UserCheck, 
-  Send, 
-  MessageSquare, 
-  ArrowUpRight, 
-  ArrowDownRight,
+import {
+  Users,
+  UserCheck,
+  Send,
+  MessageSquare,
   Plus,
   Smartphone,
   FileText,
@@ -17,17 +15,12 @@ import {
   AlertTriangle,
   Clock,
   Activity,
-  Database,
-  Globe,
   TrendingUp,
   BarChart3,
   MousePointer2,
   BrainCircuit,
   PieChart,
-  HardDrive,
-  Cpu,
   RefreshCw,
-  LayoutGrid,
   Heart,
   Ban,
   DollarSign,
@@ -37,26 +30,20 @@ import {
   ZapOff,
   UserPlus
 } from 'lucide-react';
-import { 
+import {
   AreaChart,
   Area,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
 } from 'recharts';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
-
-const chartData = [
-  { name: 'Jan', contatos: 4000, envios: 2400 },
-  { name: 'Fev', contatos: 3000, envios: 1398 },
-  { name: 'Mar', contatos: 2000, envios: 9800 },
-  { name: 'Abr', contatos: 2780, envios: 3908 },
-  { name: 'Mai', contatos: 1890, envios: 4800 },
-  { name: 'Jun', contatos: 2390, envios: 3800 },
-];
+import { apiClient } from '../services/apiClient';
+import { useSessionStore } from '../store/useSessionStore';
+import { sessionService } from '../services/sessionService';
 
 const MetricCard = ({ label, value, change, trend, icon: Icon, colorClass, progress }: any) => {
   return (
@@ -74,7 +61,7 @@ const MetricCard = ({ label, value, change, trend, icon: Icon, colorClass, progr
               <Icon className="h-3.5 w-3.5" />
             </div>
           </div>
-          
+
           <div className="mt-2 mb-1">
             <div className="text-lg font-black tracking-tight flex items-baseline gap-2">
               {value}
@@ -91,10 +78,10 @@ const MetricCard = ({ label, value, change, trend, icon: Icon, colorClass, progr
 
           {progress !== undefined && (
             <div className="h-1 w-full bg-muted/20 rounded-full overflow-hidden mt-1">
-              <motion.div 
+              <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
-                className={cn("h-full river-progress-indicator rounded-full", 
+                className={cn("h-full river-progress-indicator rounded-full",
                   trend === 'down' && progress < 10 ? "!bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]" : ""
                 )}
               />
@@ -108,63 +95,72 @@ const MetricCard = ({ label, value, change, trend, icon: Icon, colorClass, progr
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { sessions, setSessions } = useSessionStore();
+  const [overview, setOverview] = useState<any>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const loadData = async () => {
+    try {
+      const [ovData, sessData] = await Promise.all([
+        apiClient.get<any>('/api/dashboard/overview'),
+        sessionService.list(),
+      ]);
+      setOverview(ovData);
+      setSessions(sessData);
+    } catch {
+      // keep previous state on error
+    }
+  };
+
+  useEffect(() => {
+    loadData().catch(() => undefined);
+    const iv = setInterval(() => loadData().catch(() => undefined), 30_000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadData().catch(() => undefined);
+    setIsRefreshing(false);
+  };
+
+  const contacts = overview?.contacts ?? {};
+  const delivery = overview?.delivery ?? {};
+  const campaigns = overview?.campaigns ?? {};
+  const sessionsData = overview?.sessions ?? {};
+
+  const deliveryRate = delivery.sent > 0 ? Math.round((delivery.read / delivery.sent) * 100) : 0;
+  const optInRate = contacts.total > 0 ? Math.round((contacts.optIn / contacts.total) * 100) : 0;
 
   const metricsGroups = [
     {
       title: "Visão Geral",
       metrics: [
-        { label: 'Total Contatos', value: '12,543', change: '+12%', trend: 'up', icon: Users, colorClass: 'bg-blue-500/10 text-blue-400', progress: 75 },
-        { label: 'Opt-in Ativo', value: '8,432', change: '+5%', trend: 'up', icon: UserCheck, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 92 },
-        { label: 'Novos (24h)', value: '142', change: '+18%', trend: 'up', icon: UserPlus, colorClass: 'bg-primary/10 text-primary', progress: 15 },
-        { label: 'Campanhas', value: '45', change: '-2%', trend: 'down', icon: Send, colorClass: 'bg-amber-500/10 text-amber-400', progress: 60 },
-        { label: 'Templates', value: '128', change: '+4', trend: 'up', icon: FileText, colorClass: 'bg-violet-500/10 text-violet-400', progress: 85 },
-        { label: 'Créditos', value: 'R$ 1.2k', change: '-R$ 45', trend: 'down', icon: DollarSign, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 40 },
+        { label: 'Total Contatos', value: (contacts.total ?? 0).toLocaleString(), icon: Users, colorClass: 'bg-blue-500/10 text-blue-400', progress: Math.min(100, Math.round(((contacts.total ?? 0) / 10000) * 100)) },
+        { label: 'Opt-in Ativo', value: (contacts.optIn ?? 0).toLocaleString(), icon: UserCheck, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: optInRate },
+        { label: 'Sessões', value: (sessionsData.total ?? sessions.length).toString(), icon: Smartphone, colorClass: 'bg-primary/10 text-primary', progress: Math.min(100, (sessionsData.total ?? sessions.length) * 10) },
+        { label: 'Campanhas', value: (campaigns.total ?? 0).toString(), icon: Send, colorClass: 'bg-amber-500/10 text-amber-400', progress: Math.min(100, (campaigns.total ?? 0) * 5) },
+        { label: 'Enviados', value: (delivery.sent ?? 0).toLocaleString(), icon: Send, colorClass: 'bg-violet-500/10 text-violet-400', progress: Math.min(100, Math.round(((delivery.sent ?? 0) / 100000) * 100)) },
+        { label: 'Lidos', value: (delivery.read ?? 0).toLocaleString(), icon: CheckCircle2, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: deliveryRate },
       ]
     },
     {
-      title: "Entrega de Mensagens",
-      metrics: [
-        { label: 'Enviados', value: '154k', change: '+18%', trend: 'up', icon: Send, colorClass: 'bg-primary/10 text-primary', progress: 88 },
-        { label: 'Entregues', value: '98.2%', change: '+0.5%', trend: 'up', icon: CheckCircle2, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 98 },
-        { label: 'Lidas', value: '74.5%', change: '+12%', trend: 'up', icon: Smartphone, colorClass: 'bg-blue-500/10 text-blue-400', progress: 74 },
-        { label: 'Falhas', value: '1.2%', change: '-0.1%', trend: 'down', icon: AlertTriangle, colorClass: 'bg-rose-500/10 text-rose-400', progress: 1.2 },
-        { label: 'Pendentes', value: '450', change: '+2%', trend: 'up', icon: Clock, colorClass: 'bg-amber-500/10 text-amber-400', progress: 5 },
-        { label: 'Bloqueios', value: '12', change: '-2', trend: 'down', icon: Ban, colorClass: 'bg-rose-500/10 text-rose-400', progress: 0.1 },
-      ]
+      title: "Canais Ativos",
+      metrics: sessions.slice(0, 6).map(s => ({
+        label: s.name,
+        value: s.phoneNumber ?? 'Aguardando',
+        icon: Smartphone,
+        colorClass: s.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400' : s.status === 'error' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400',
+        progress: s.healthScore ?? 0,
+        change: s.status,
+        trend: s.status === 'connected' ? 'up' : 'down',
+      })).concat(
+        sessions.length === 0 ? [{
+          label: 'Nenhuma sessão', value: 'Crie em Conectores', icon: Settings,
+          colorClass: 'bg-muted/10 text-muted-foreground', progress: 0,
+        } as any] : []
+      ),
     },
-    {
-      title: "Engajamento & IA",
-      metrics: [
-        { label: 'Taxa Resposta', value: '24.5%', change: '+3.2%', trend: 'up', icon: MessageSquare, colorClass: 'bg-violet-500/10 text-violet-400', progress: 45 },
-        { label: 'CTR Médio', value: '8.4%', change: '+1.2%', trend: 'up', icon: MousePointer2, colorClass: 'bg-blue-500/10 text-blue-400', progress: 34 },
-        { label: 'Tempo Médio', value: '2.4m', change: '+0.5m', trend: 'up', icon: Activity, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 62 },
-        { label: 'Unsubscribes', value: '0.4%', change: '-0.1%', trend: 'down', icon: ZapOff, colorClass: 'bg-rose-500/10 text-rose-400', progress: 0.4 },
-        { label: 'Reações', value: '12.4k', change: '+2k', trend: 'up', icon: Heart, colorClass: 'bg-rose-500/10 text-rose-400', progress: 70 },
-        { label: 'Recebidas', value: '42k', change: '+5k', trend: 'up', icon: MessageSquare, colorClass: 'bg-primary/10 text-primary', progress: 55 },
-      ]
-    },
-    {
-      title: "Inteligência Artificial",
-      metrics: [
-        { label: 'Intenções', value: '28', trend: 'up', icon: Target, colorClass: 'bg-violet-500/10 text-violet-400', progress: 100 },
-        { label: 'Automatizado', value: '64%', change: '+12%', trend: 'up', icon: BrainCircuit, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 64 },
-        { label: 'Transbordos', value: '124', change: '-15%', trend: 'down', icon: Users, colorClass: 'bg-amber-500/10 text-amber-400', progress: 12 },
-        { label: 'Sentimento', value: '85%', change: '+5%', trend: 'up', icon: Smile, colorClass: 'bg-primary/10 text-primary', progress: 85 },
-        { label: 'Precisão IA', value: '94%', change: '+1%', trend: 'up', icon: ShieldCheck, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 94 },
-        { label: 'Tempo Salvo', value: '450h', change: '+40h', trend: 'up', icon: Zap, colorClass: 'bg-primary/10 text-primary', progress: 100 },
-      ]
-    },
-    {
-      title: "Conversão & ROI",
-      metrics: [
-        { label: 'Vendas (R$)', value: '125k', change: '+15k', trend: 'up', icon: DollarSign, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 72 },
-        { label: 'Leads Qual.', value: '1.8k', change: '+240', trend: 'up', icon: Target, colorClass: 'bg-blue-500/10 text-blue-400', progress: 65 },
-        { label: 'ROI Médio', value: '4.5x', change: '+0.5', trend: 'up', icon: TrendingUp, colorClass: 'bg-violet-500/10 text-violet-400', progress: 88 },
-        { label: 'Custo/Lead', value: 'R$ 4.2', change: '-0.5', trend: 'down', icon: DollarSign, colorClass: 'bg-amber-500/10 text-amber-400', progress: 10 },
-        { label: 'Retenção', value: '92%', change: '+2%', trend: 'up', icon: Activity, colorClass: 'bg-primary/10 text-primary', progress: 92 },
-        { label: 'LTV Estimado', value: 'R$ 850', change: '+50', trend: 'up', icon: BarChart3, colorClass: 'bg-emerald-500/10 text-emerald-400', progress: 55 },
-      ]
-    }
   ];
 
   const shortcuts = [
@@ -174,11 +170,7 @@ export const DashboardPage: React.FC = () => {
     { label: 'Relatórios', desc: 'Análise detalhada', icon: BarChart3, colorClass: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20', action: () => navigate('/reports') },
   ];
 
-  const channels = [
-    { name: 'WhatsApp Business', provider: 'Twilio', status: 'Conectado', health: 98, colorClass: 'bg-blue-500 text-blue-500' },
-    { name: 'WhatsApp Official', provider: 'Meta API', status: 'Conectado', health: 92, colorClass: 'bg-emerald-500 text-emerald-500' },
-    { name: 'Email Marketing', provider: 'SendGrid', status: 'Ativo', health: 85, colorClass: 'bg-primary text-primary' },
-  ];
+  const connectedSessions = sessions.filter(s => s.status === 'connected');
 
   return (
     <div className="space-y-8 sm:space-y-12 pb-20 max-w-[1600px] mx-auto">
@@ -193,15 +185,15 @@ export const DashboardPage: React.FC = () => {
           <p className="text-xs sm:text-sm text-muted-foreground font-medium">Monitoramento global de métricas e performance em tempo real.</p>
         </div>
         <div className="hidden md:flex gap-4 items-center">
-            <div className="text-right">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Server Load</p>
-                <p className="text-xs font-mono font-bold text-emerald-400">12.4% - OPTIMIZED</p>
-            </div>
-            <div className="h-10 w-[1px] bg-border" />
-            <div className="text-right">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Last Sync</p>
-                <p className="text-xs font-mono font-bold text-primary">JUST NOW</p>
-            </div>
+          <div className="text-right">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Sessões Online</p>
+            <p className="text-xs font-mono font-bold text-emerald-400">{connectedSessions.length} CONECTADAS</p>
+          </div>
+          <div className="h-10 w-[1px] bg-border" />
+          <button onClick={handleRefresh} className="text-right hover:opacity-70 transition-opacity">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Atualizar</p>
+            <RefreshCw className={cn("w-4 h-4 text-primary mx-auto mt-0.5", isRefreshing && "animate-spin")} />
+          </button>
         </div>
       </div>
 
@@ -226,29 +218,31 @@ export const DashboardPage: React.FC = () => {
           <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 bg-white/5 py-4">
             <div>
               <CardTitle className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-primary" /> Fluxo de Crescimento
+                <TrendingUp className="w-4 h-4 text-primary" /> Entregas vs Leituras
               </CardTitle>
             </div>
             <div className="flex gap-4">
-               <div className="flex items-center gap-1.5">
-                   <div className="w-2 h-2 rounded-full bg-primary" />
-                   <span className="text-[10px] font-bold text-muted-foreground">CONTATOS</span>
-               </div>
-               <div className="flex items-center gap-1.5">
-                   <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                   <span className="text-[10px] font-bold text-muted-foreground">ENVIO</span>
-               </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-primary" />
+                <span className="text-[10px] font-bold text-muted-foreground">ENVIADOS</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-[10px] font-bold text-muted-foreground">LIDOS</span>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="h-[350px] pt-8 pr-6">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
+              <AreaChart data={[
+                { name: 'Total', enviados: delivery.sent ?? 0, lidos: delivery.read ?? 0 },
+              ]}>
                 <defs>
-                  <linearGradient id="colorContatos" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorEnviados" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
                   </linearGradient>
-                  <linearGradient id="colorEnvios" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorLidos" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
@@ -256,17 +250,9 @@ export const DashboardPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: 'hsl(var(--muted-foreground))', fontWeight: 600}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: 'hsl(var(--muted-foreground))', fontWeight: 600}} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(5, 5, 10, 0.95)', 
-                    borderColor: 'rgba(255, 255, 255, 0.1)', 
-                    borderRadius: '8px',
-                    backdropFilter: 'blur(10px)',
-                    fontSize: '11px'
-                  }}
-                />
-                <Area type="monotone" dataKey="contatos" stroke="var(--primary)" strokeWidth={4} fillOpacity={1} fill="url(#colorContatos)" />
-                <Area type="monotone" dataKey="envios" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorEnvios)" />
+                <Tooltip contentStyle={{ backgroundColor: 'rgba(5, 5, 10, 0.95)', borderColor: 'rgba(255, 255, 255, 0.1)', borderRadius: '8px', backdropFilter: 'blur(10px)', fontSize: '11px' }} />
+                <Area type="monotone" dataKey="enviados" stroke="var(--primary)" strokeWidth={4} fillOpacity={1} fill="url(#colorEnviados)" />
+                <Area type="monotone" dataKey="lidos" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorLidos)" />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -303,34 +289,38 @@ export const DashboardPage: React.FC = () => {
           <Card className="border-none bg-card/40 backdrop-blur-md shadow-2xl ring-1 ring-white/5 overflow-hidden">
             <CardHeader className="pb-4 border-b border-white/5 bg-white/5 py-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                <Activity className="w-4 h-4 text-emerald-400" /> Canais Ativos
+                <Activity className="w-4 h-4 text-emerald-400" /> Sessões Ativas
               </CardTitle>
-              <Badge variant="outline" className="text-[9px] font-black border-emerald-500/20 text-emerald-400">STATUS: OK</Badge>
+              <Badge variant="outline" className={cn("text-[9px] font-black", connectedSessions.length > 0 ? "border-emerald-500/20 text-emerald-400" : "border-rose-500/20 text-rose-400")}>
+                {connectedSessions.length > 0 ? 'STATUS: OK' : 'OFFLINE'}
+              </Badge>
             </CardHeader>
             <CardContent className="p-4 space-y-4">
-              {channels.map((channel, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                       <div className="flex flex-col">
-                           <span className="text-xs font-bold leading-none">{channel.name}</span>
-                           <span className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">{channel.provider}</span>
-                       </div>
+              {connectedSessions.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Nenhuma sessão conectada. Acesse <button onClick={() => navigate('/connectors')} className="text-primary underline">Conectores</button>.</p>
+              ) : (
+                connectedSessions.slice(0, 4).map((s, i) => (
+                  <div key={s.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold leading-none">{s.name}</span>
+                          <span className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">{s.phoneNumber ?? 'WhatsApp'}</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-muted-foreground">{s.healthScore ?? 100}%</span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-muted-foreground">{channel.health}%</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                      <motion.div
                         initial={{ width: 0 }}
-                        animate={{ width: `${channel.health}%` }}
-                        className={cn("h-full river-progress-indicator rounded-full", 
-                          channel.health > 90 ? "opacity-100" : "opacity-80"
-                        )}
-                    />
+                        animate={{ width: `${s.healthScore ?? 100}%` }}
+                        className="h-full river-progress-indicator rounded-full"
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </div>

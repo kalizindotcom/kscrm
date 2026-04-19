@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Filter, 
@@ -13,11 +13,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
-import { mockConversations } from '../mock/data';
 import { cn, formatDate } from '../lib/utils';
 import { Conversation } from '../types';
 import { NewMessageModal } from '../components/messages/NewMessageModal';
 import { ConversationDetailModal } from '../components/messages/ConversationDetailModal';
+import { conversationService } from '../services/conversationService';
 
 const MessageCard = ({ 
   conv, 
@@ -107,10 +107,21 @@ export const InboxPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isNewMessageModalOpen, setIsNewMessageModalOpen] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [localConversations, setLocalConversations] = useState<Conversation[]>(mockConversations);
+  const [localConversations, setLocalConversations] = useState<Conversation[]>([]);
 
-  const handleDeleteConversation = (id: string) => {
+  useEffect(() => {
+    conversationService.list()
+      .then(setLocalConversations)
+      .catch(() => setLocalConversations([]));
+  }, []);
+
+  const handleDeleteConversation = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta conversa?')) {
+      try {
+        await conversationService.delete(id);
+      } catch {
+        // best-effort
+      }
       setLocalConversations(prev => prev.filter(c => c.id !== id));
       toast.error('Conversa excluída');
     }

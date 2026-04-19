@@ -207,7 +207,7 @@ export const ContactReport = ({ isLoading: globalLoading }: { isLoading: boolean
                 </div>
                 <div className="text-xl font-bold">{metric.value.toLocaleString()}</div>
                 <div className="w-full bg-muted h-1 rounded-full overflow-hidden">
-                  <div className={`h-full bg-current ${metric.color}`} style={{ width: `${Math.random() * 60 + 20}%` }} />
+                  <div className={`h-full bg-current ${metric.color}`} style={{ width: `${metrics && metrics.totalContacts > 0 ? Math.min(100, Math.round((metric.value / metrics.totalContacts) * 100)) : 0}%` }} />
                 </div>
               </div>
             ))}

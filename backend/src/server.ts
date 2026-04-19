@@ -19,6 +19,7 @@ import { conversationsRoutes } from './modules/conversations/conversations.route
 import { campaignsRoutes } from './modules/campaigns/campaigns.routes.js';
 import { groupsRoutes } from './modules/groups/groups.routes.js';
 import { reportsRoutes } from './modules/reports/reports.routes.js';
+import { templatesRoutes } from './modules/templates/templates.routes.js';
 
 async function ensureRuntimeDirs() {
   await fs.mkdir(path.resolve(env.BAILEYS_AUTH_DIR), { recursive: true });
@@ -54,6 +55,7 @@ await app.register(conversationsRoutes);
 await app.register(campaignsRoutes);
 await app.register(groupsRoutes);
 await app.register(reportsRoutes);
+await app.register(templatesRoutes);
 
 app.setNotFoundHandler(async (_req, reply) => {
   return reply.status(404).send({

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Users, 
+import React, { useState, useEffect } from 'react';
+import {
+  Plus,
+  Search,
+  Filter,
+  Users,
   MessageSquare,
   Shield,
   RefreshCw,
@@ -14,21 +14,27 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogDescription,
   DialogFooter
 } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
-import { mockGroups } from '../mock/data';
 import { cn, formatDate } from '../lib/utils';
 import { WhatsAppGroup } from '../types';
+import { groupsService } from '../services/groupsService';
+import { sessionService } from '../services/sessionService';
+import { useSessionStore } from '../store/useSessionStore';
+import { useAuthStore } from '../store';
+
+const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
 export const GroupsPage: React.FC = () => {
   const [search, setSearch] = useState('');
+  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<WhatsAppGroup | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
@@ -36,16 +42,57 @@ export const GroupsPage: React.FC = () => {
   const [isSaveAgendaModalOpen, setIsSaveAgendaModalOpen] = useState(false);
   const [agendaName, setAgendaName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const { sessions, setSessions } = useSessionStore();
 
-  const handleGlobalSync = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      setIsSyncing(false);
-      alert('Grupos sincronizados com sucesso da sessão atual!');
-    }, 2000);
+  const getConnectedSessionId = () => {
+    return sessions.find(s => s.status === 'connected')?.id ?? null;
   };
 
-  const filteredGroups = mockGroups.filter(g => 
+  const loadGroups = async (sessionId: string) => {
+    try {
+      const data = await groupsService.listBySession(sessionId);
+      setGroups(data);
+    } catch {
+      setGroups([]);
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      let sessionList = sessions;
+      if (!sessionList.length) {
+        try {
+          sessionList = await sessionService.list();
+          setSessions(sessionList);
+        } catch {
+          return;
+        }
+      }
+      const connected = sessionList.find(s => s.status === 'connected');
+      if (connected) loadGroups(connected.id);
+    };
+    init();
+  }, []);
+
+  const handleGlobalSync = async () => {
+    const sessionId = getConnectedSessionId();
+    if (!sessionId) {
+      alert('Nenhuma sessão conectada encontrada. Conecte uma sessão primeiro.');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const synced = await groupsService.sync(sessionId);
+      setGroups(synced);
+      alert('Grupos sincronizados com sucesso!');
+    } catch {
+      alert('Falha ao sincronizar grupos.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const filteredGroups = groups.filter(g =>
     g.name.toLowerCase().includes(search.toLowerCase()) ||
     (g.description?.toLowerCase().includes(search.toLowerCase()) ?? false)
   );
@@ -56,72 +103,60 @@ export const GroupsPage: React.FC = () => {
   };
 
   const getMemberData = (group: WhatsAppGroup) => {
-    return [...group.admins, ...group.members].map((member, idx) => {
-      // Gerando números limpos (apenas dígitos) para formato interno
-      const ddd = Math.floor(Math.random() * 89 + 10);
-      const prefix = 9;
-      const part1 = Math.floor(Math.random() * 8999 + 1000);
-      const part2 = Math.floor(Math.random() * 8999 + 1000);
-      const cleanPhone = `55${ddd}${prefix}${part1}${part2}`;
-      
-      // Formato visual para a UI
-      const displayPhone = `+55 ${ddd} ${prefix}${part1}-${part2}`;
-      
+    const allMembers = [...new Set([...group.admins, ...group.members])];
+    return allMembers.map((member) => {
+      const cleanJid = member.replace('@s.whatsapp.net', '').replace('@g.us', '');
       return {
-        name: member,
-        cleanPhone,
-        displayPhone,
+        name: cleanJid,
+        cleanPhone: cleanJid,
+        displayPhone: cleanJid.startsWith('55') ? `+${cleanJid}` : cleanJid,
         isAdmin: group.admins.includes(member),
         joinDate: new Date().toLocaleDateString('pt-BR')
       };
     });
   };
 
-  const handleExport = (type: 'csv' | 'excel') => {
+  const handleExport = async (type: 'csv' | 'excel') => {
     if (!selectedGroup) return;
-    
-    const membersData = getMemberData(selectedGroup);
-    const headers = ['Nome', 'Telefone', 'Data de Entrada'];
-    const rows = membersData.map(m => [m.name, m.cleanPhone, m.joinDate]);
-
-    let content = '';
-    if (type === 'csv') {
-      content = [headers, ...rows].map(row => row.join(',')).join('\n');
-    } else {
-      // Formato TSV (Tab-Separated Values) que abre nativamente no Excel
-      content = [headers, ...rows].map(row => row.join('\t')).join('\n');
+    const format = type === 'csv' ? 'csv' : 'xlsx';
+    const token = useAuthStore.getState().token;
+    try {
+      const response = await fetch(`${API_URL}/api/groups/${selectedGroup.id}/export?format=${format}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `contatos_${selectedGroup.name.replace(/\s+/g, '_').toLowerCase()}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      alert('Exportação concluída!');
+    } catch {
+      alert('Falha ao exportar contatos.');
     }
-
-    const blob = new Blob([content], { 
-      type: type === 'csv' ? 'text/csv;charset=utf-8;' : 'application/vnd.ms-excel;charset=utf-8;' 
-    });
-    
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `contatos_${selectedGroup.name.replace(/\s+/g, '_').toLowerCase()}_${type === 'csv' ? 'export' : 'planilha'}.${type === 'csv' ? 'csv' : 'xls'}`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    alert(`Exportação concluída! Os números foram exportados no formato internacional limpo conforme solicitado.`);
   };
 
-  const handleSaveToAgenda = () => {
+  const handleSaveToAgenda = async () => {
     if (!agendaName.trim()) {
       alert('Por favor, informe um nome para a lista de contatos.');
       return;
     }
-    
+    if (!selectedGroup) return;
     setIsSaving(true);
-    // Simular salvamento em massa
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      await groupsService.saveToContacts(selectedGroup.id);
       setIsSaveAgendaModalOpen(false);
       setAgendaName('');
-      alert(`Lista "${agendaName}" criada com sucesso! ${selectedGroup?.memberCount} contatos foram importados para sua agenda.`);
-    }, 2000);
+      alert(`Lista "${agendaName}" criada com sucesso! ${selectedGroup.memberCount} contatos foram importados para sua agenda.`);
+    } catch {
+      alert('Falha ao salvar contatos para agenda.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

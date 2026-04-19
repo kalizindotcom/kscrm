@@ -5,9 +5,10 @@ import { ChatList } from '@/components/live-view/ChatList';
 import { ChatWindow } from '@/components/live-view/ChatWindow';
 import { ContactSidebar } from '@/components/live-view/ContactSidebar';
 import { EmptyState } from '@/components/live-view/EmptyState';
-import { LiveConversation } from '@/components/live-view/types';
-import { mockConversations } from '@/components/live-view/mock-data';
+import { LiveConversation, LiveMessage } from '@/components/live-view/types';
 import { motion, AnimatePresence } from 'framer-motion';
+import { conversationService } from '@/services/conversationService';
+import { apiClient } from '@/services/apiClient';
 import { Loader2, ChevronLeft } from 'lucide-react';
 import { LiveViewModals } from '@/components/live-view/LiveViewModals';
 import { toast } from 'sonner';
@@ -18,7 +19,7 @@ import { Button } from '@/components/ui/button';
 export const LiveViewPage: React.FC = () => {
   const { sessions, selectedSessionId, selectSession } = useSessionStore();
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<LiveConversation[]>(mockConversations);
+  const [conversations, setConversations] = useState<LiveConversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -56,10 +57,10 @@ export const LiveViewPage: React.FC = () => {
     }
   };
 
-  const handleSendMessage = (chatId: string, content: string) => {
-
+  const handleSendMessage = async (chatId: string, content: string) => {
+    const msgId = Math.random().toString(36).substr(2, 9);
     const newMessage: LiveConversation['messages'][0] = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: msgId,
       content,
       fromMe: true,
       type: 'text',
@@ -67,77 +68,85 @@ export const LiveViewPage: React.FC = () => {
       status: 'sending'
     };
 
-    setConversations(prev => prev.map(conv => {
-      if (conv.id === chatId) {
-        return {
-          ...conv,
-          messages: [...conv.messages, newMessage],
-          lastMessage: content,
-          lastMessageTime: newMessage.timestamp
-        };
-      }
-      return conv;
-    }));
+    setConversations(prev => prev.map(conv =>
+      conv.id === chatId
+        ? { ...conv, messages: [...conv.messages, newMessage], lastMessage: content, lastMessageTime: newMessage.timestamp }
+        : conv
+    ));
 
-    // Simulate status updates
-    setTimeout(() => {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === chatId) {
-          return {
-            ...conv,
-            messages: conv.messages.map(m => m.id === newMessage.id ? { ...m, status: 'sent' } : m)
-          };
-        }
-        return conv;
-      }));
-    }, 1000);
-
-    setTimeout(() => {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === chatId) {
-          return {
-            ...conv,
-            messages: conv.messages.map(m => m.id === newMessage.id ? { ...m, status: 'read' } : m)
-          };
-        }
-        return conv;
-      }));
-    }, 2000);
+    try {
+      const conv = conversations.find(c => c.id === chatId);
+      await apiClient.post('/api/messages/send', {
+        sessionId: activeSession?.id,
+        phone: conv?.phoneNumber,
+        content,
+      });
+      setConversations(prev => prev.map(conv =>
+        conv.id === chatId
+          ? { ...conv, messages: conv.messages.map(m => m.id === msgId ? { ...m, status: 'sent' } : m) }
+          : conv
+      ));
+    } catch {
+      setConversations(prev => prev.map(conv =>
+        conv.id === chatId
+          ? { ...conv, messages: conv.messages.map(m => m.id === msgId ? { ...m, status: 'failed', error: 'Falha ao enviar' } : m) }
+          : conv
+      ));
+    }
   };
 
   const handleRetryMessage = (chatId: string, messageId: string) => {
-    setConversations(prev => prev.map(conv => {
-      if (conv.id === chatId) {
-        return {
-          ...conv,
-          messages: conv.messages.map(m => m.id === messageId ? { ...m, status: 'sending', error: undefined } : m)
-        };
-      }
-      return conv;
-    }));
-
-    setTimeout(() => {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === chatId) {
-          return {
-            ...conv,
-            messages: conv.messages.map(m => m.id === messageId ? { ...m, status: 'sent' } : m)
-          };
-        }
-        return conv;
-      }));
-    }, 1500);
+    const conv = conversations.find(c => c.id === chatId);
+    const msg = conv?.messages.find(m => m.id === messageId);
+    if (!msg) return;
+    handleSendMessage(chatId, msg.content);
   };
 
-  // Get active session
-  const activeSession = sessions.find(s => s.status === 'connected') || 
-                       sessions.find(s => s.id === selectedSessionId) || 
+  const activeSession = sessions.find(s => s.status === 'connected') ||
+                       sessions.find(s => s.id === selectedSessionId) ||
                        null;
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1200);
-    return () => clearTimeout(timer);
+    conversationService.list()
+      .then(convs => {
+        const live: LiveConversation[] = convs.map(c => ({
+          id: c.id,
+          contactName: c.contactName,
+          phoneNumber: c.phone ?? '',
+          avatar: c.avatar,
+          lastMessage: c.lastMessage,
+          lastMessageTime: c.updatedAt,
+          unreadCount: c.unreadCount,
+          status: c.status === 'resolved' ? 'archived' : 'active',
+          origin: 'direct' as const,
+          tags: [],
+          messages: [],
+          metrics: { totalSent: 0, totalReceived: 0, avgResponseTime: '—', responseRate: '—', failureCount: 0 },
+        }));
+        setConversations(live);
+      })
+      .catch(() => setConversations([]))
+      .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    conversationService.getMessages(selectedChatId, { limit: 50 })
+      .then(msgs => {
+        const liveMsgs: LiveMessage[] = msgs.map(m => ({
+          id: m.id,
+          content: m.content,
+          timestamp: m.timestamp,
+          status: m.status as LiveMessage['status'],
+          type: (m.type === 'image' || m.type === 'file') ? m.type : 'text',
+          fromMe: m.direction === 'outbound',
+        }));
+        setConversations(prev => prev.map(c =>
+          c.id === selectedChatId ? { ...c, messages: liveMsgs } : c
+        ));
+      })
+      .catch(() => {});
+  }, [selectedChatId]);
 
   const selectedChat = conversations.find(c => c.id === selectedChatId) || null;
 

@@ -171,20 +171,26 @@ export const GroupReport = ({ isLoading: globalLoading }: { isLoading: boolean }
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[1, 2, 3, 4].map((i) => (
-                  <TableRow key={i} className="text-sm">
-                    <TableCell className="font-medium">Grupo Marketing {i}</TableCell>
-                    <TableCell>{Math.floor(Math.random() * 256)}</TableCell>
+                {metrics && metrics.totalGroups > 0 ? (
+                  <TableRow className="text-sm">
+                    <TableCell className="font-medium">Total de Grupos</TableCell>
+                    <TableCell>{metrics.totalGroups}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px]">Ativo</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewDetails({ id: i })}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewDetails({ id: 1 })}>
                         <Eye className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground text-xs py-6">
+                      Nenhum grupo encontrado.
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>
