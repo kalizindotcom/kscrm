@@ -68,12 +68,12 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
 
   const copyId = () => {
     navigator.clipboard.writeText(session.id);
-    toast.success('ID da sessão copiado!');
+    toast.success('ID da sessÃ£o copiado!');
   };
 
   const handleSaveName = async () => {
     if (!session || !newName.trim()) {
-      toast.error('O nome da sess�o n�o pode estar vazio');
+      toast.error('O nome da sessão não pode estar vazio');
       return;
     }
 
@@ -81,9 +81,9 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
       const updated = await sessionService.update(session.id, { name: newName.trim() });
       updateSession(session.id, { name: updated.name });
       setIsEditing(false);
-      toast.success('Nome da sess�o atualizado!');
+      toast.success('Nome da sessão atualizado!');
     } catch (error: any) {
-      toast.error(error?.message ?? 'Falha ao atualizar o nome da sess�o');
+      toast.error(error?.message ?? 'Falha ao atualizar o nome da sessão');
     }
   };
 
@@ -136,7 +136,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <SessionStatusBadge status={session.status} />
-                  <span className="text-xs text-slate-500 font-mono">{session.phoneNumber || 'Não vinculado'}</span>
+                  <span className="text-xs text-slate-500 font-mono">{session.phoneNumber || 'NÃ£o vinculado'}</span>
                 </div>
               </div>
             </div>
@@ -188,7 +188,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                     <Badge variant="outline" className="border-blue-500/30 bg-blue-500/5 text-blue-400 text-[10px] h-5 uppercase">{session.environment}</Badge>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Responsável</p>
+                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">ResponsÃ¡vel</p>
                     <div className="flex items-center gap-1.5">
                       <User className="w-3 h-3 text-slate-400" />
                       <p className="text-sm font-medium text-slate-200">{session.responsible}</p>
@@ -216,10 +216,10 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
 
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase text-slate-400 flex items-center gap-2">
-                    <FileText className="w-3 h-3" /> Observações Internas
+                    <FileText className="w-3 h-3" /> ObservaÃ§Ãµes Internas
                   </h4>
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-sm text-slate-400 italic">
-                    {session.notes || 'Nenhuma observação adicionada a esta sessão.'}
+                    {session.notes || 'Nenhuma observaÃ§Ã£o adicionada a esta sessÃ£o.'}
                   </div>
                 </div>
               </TabsContent>
@@ -228,11 +228,11 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                 <div className="grid grid-cols-3 gap-2">
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-center space-y-1">
                     <p className="text-2xl font-bold text-white">{session.syncCount}</p>
-                    <p className="text-[9px] uppercase font-bold text-slate-500 tracking-tighter">Sincronizações</p>
+                    <p className="text-[9px] uppercase font-bold text-slate-500 tracking-tighter">SincronizaÃ§Ãµes</p>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-center space-y-1">
                     <p className="text-2xl font-bold text-blue-500">{session.reconnectCount}</p>
-                    <p className="text-[9px] uppercase font-bold text-slate-500 tracking-tighter">Reconexões</p>
+                    <p className="text-[9px] uppercase font-bold text-slate-500 tracking-tighter">ReconexÃµes</p>
                   </div>
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-center space-y-1">
                     <p className={cn("text-2xl font-bold", session.failureCount > 5 ? "text-rose-500" : "text-white")}>{session.failureCount}</p>
@@ -244,14 +244,14 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                   <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-800">
                     <div className="flex items-center gap-3">
                       <Clock className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm font-medium text-slate-300">Última Conexão</span>
+                      <span className="text-sm font-medium text-slate-300">Ãšltima ConexÃ£o</span>
                     </div>
                     <span className="text-sm font-mono text-slate-400">{session.lastConnectedAt ? new Date(session.lastConnectedAt).toLocaleString() : 'N/A'}</span>
                   </div>
                   <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-800">
                     <div className="flex items-center gap-3">
                       <Activity className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm font-medium text-slate-300">Última Atividade</span>
+                      <span className="text-sm font-medium text-slate-300">Ãšltima Atividade</span>
                     </div>
                     <span className="text-sm font-mono text-slate-400">{session.lastActivity ? new Date(session.lastActivity).toLocaleString() : 'N/A'}</span>
                   </div>
@@ -259,7 +259,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                     <div className="bg-rose-500/5 border border-rose-500/20 p-4 rounded-xl space-y-2">
                       <div className="flex items-center gap-2 text-rose-500">
                         <AlertCircle className="w-4 h-4" />
-                        <span className="text-xs font-bold uppercase tracking-wider">Motivo da Desconexão</span>
+                        <span className="text-xs font-bold uppercase tracking-wider">Motivo da DesconexÃ£o</span>
                       </div>
                       <p className="text-sm text-slate-300 leading-relaxed">{session.disconnectReason}</p>
                     </div>
@@ -309,7 +309,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                   sessionId={session.id}
                   onCancel={onClose} 
                   onSuccess={() => {
-                    toast.success('Sessão vinculada!');
+                    toast.success('SessÃ£o vinculada!');
                     onAction('connect_finish', session);
                   }} 
                 />
@@ -323,7 +323,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
         <DialogFooter className="p-6 bg-slate-900/50 relative z-10 border-t border-slate-800">
           <div className="flex items-center justify-between w-full">
             <Button variant="ghost" className="text-rose-500 hover:text-rose-400 hover:bg-rose-500/5 font-bold text-xs" onClick={() => onAction('delete', session)}>
-              <Trash2 className="w-4 h-4 mr-2" /> DELETAR SESSÃO
+              <Trash2 className="w-4 h-4 mr-2" /> DELETAR SESSÃƒO
             </Button>
             <div className="flex gap-2">
               <Button variant="outline" className="bg-white/5 border-white/10 font-bold text-xs" onClick={onClose}>
@@ -331,7 +331,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
               </Button>
               {session.status === 'connected' ? (
                 <Button variant="outline" className="bg-rose-500/10 border-rose-500/20 text-rose-500 hover:bg-rose-500/20 font-bold text-xs" onClick={() => onAction('terminate', session)}>
-                  ENCERRAR SESSÃO
+                  ENCERRAR SESSÃƒO
                 </Button>
               ) : (
                 <Button className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20" onClick={() => onAction('connect', session)}>
