@@ -20,6 +20,7 @@ export const LiveViewPage: React.FC = () => {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<LiveConversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const initialLoaded = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [modals, setModals] = useState({
@@ -56,13 +57,15 @@ export const LiveViewPage: React.FC = () => {
       const msgs = await conversationService.getMessages(chatId, { limit: 50 });
       const liveMsgs: LiveMessage[] = [...msgs]
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-        .map((m) => ({
+        .map((m: any) => ({
           id: m.id,
           content: m.content,
           timestamp: m.timestamp,
           status: m.status as LiveMessage['status'],
           type: m.type === 'image' || m.type === 'file' ? m.type : 'text',
           fromMe: m.direction === 'outbound',
+          senderName: m.senderName ?? undefined,
+          senderPhone: m.senderPhone ?? undefined,
         }));
       setConversations((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: liveMsgs } : c)));
     } catch {
@@ -115,9 +118,10 @@ export const LiveViewPage: React.FC = () => {
       const targetPhone = conv?.rawPhone || conv?.phoneNumber;
       if (!activeSession?.id || !targetPhone) throw new Error('Conversa sem destino válido');
 
+      const phone = conv?.isGroup ? `${targetPhone}@g.us` : targetPhone;
       await apiClient.post('/api/messages/send', {
         sessionId: activeSession.id,
-        phone: targetPhone,
+        phone,
         content,
       });
 
@@ -155,15 +159,20 @@ export const LiveViewPage: React.FC = () => {
   };
 
   useEffect(() => {
-    const loadConversations = async () => {
+    initialLoaded.current = false;
+  }, [activeSession?.id]);
+
+  useEffect(() => {
+    const loadConversations = async (showLoader: boolean) => {
       if (!activeSession?.id) {
         setConversations([]);
         setSelectedChatId(null);
         setIsLoading(false);
+        initialLoaded.current = true;
         return;
       }
 
-      setIsLoading(true);
+      if (showLoader) setIsLoading(true);
       try {
         const convs = await conversationService.list({ sessionId: activeSession.id });
 
@@ -175,10 +184,11 @@ export const LiveViewPage: React.FC = () => {
             return {
               id: c.id,
               contactName: c.contactName,
-              phoneNumber: formatPhoneDisplay(c.phone ?? ''),
+              phoneNumber: isGroup ? c.phone ?? '' : formatPhoneDisplay(c.phone ?? ''),
               rawPhone: c.phone ?? '',
+              isGroup,
               avatar: c.avatar,
-              lastMessage: isGroup ? 'Toque para abrir mensagens do grupo' : c.lastMessage,
+              lastMessage: isGroup ? (c.lastMessage || 'Toque para abrir mensagens do grupo') : c.lastMessage,
               lastMessageTime: c.updatedAt,
               unreadCount: c.unreadCount,
               status: c.status === 'resolved' ? 'archived' : 'active',
@@ -198,13 +208,14 @@ export const LiveViewPage: React.FC = () => {
       } catch {
         // mantém estado atual para não sumir tudo em falhas temporárias
       } finally {
-        setIsLoading(false);
+        if (showLoader) setIsLoading(false);
+        initialLoaded.current = true;
       }
     };
 
-    loadConversations().catch(() => undefined);
+    loadConversations(true).catch(() => undefined);
     const interval = setInterval(() => {
-      loadConversations().catch(() => undefined);
+      loadConversations(false).catch(() => undefined);
     }, 15000);
     return () => clearInterval(interval);
   }, [activeSession?.id]);

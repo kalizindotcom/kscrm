@@ -180,6 +180,10 @@ model Message {
   // outbound button payload (kept for retry/audit)
   buttonsJson     Json?
 
+  // sender info for group messages
+  senderPhone     String?
+  senderName      String?
+
   timestamp       DateTime      @default(now())
 
   @@index([conversationId, timestamp])

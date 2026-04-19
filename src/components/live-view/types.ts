@@ -10,6 +10,7 @@ export interface LiveMessage {
   type: 'text' | 'image' | 'video' | 'audio' | 'file';
   fromMe: boolean;
   senderName?: string;
+  senderPhone?: string;
   error?: string;
 }
 
@@ -18,6 +19,7 @@ export interface LiveConversation {
   contactName: string;
   phoneNumber: string;
   rawPhone?: string;
+  isGroup?: boolean;
   avatar?: string;
   lastMessage?: string;
   lastMessageTime?: string;

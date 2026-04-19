@@ -187,7 +187,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                       <span className="text-[9px] font-black uppercase tracking-tighter">Ks Leads Gateway</span>
                     </div>
                   )}
-                  
+                  {!msg.fromMe && (msg.senderName || msg.senderPhone) && (
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {msg.senderName && (
+                        <span className="text-[11px] font-bold text-primary">{msg.senderName}</span>
+                      )}
+                      {msg.senderPhone && (
+                        <span className="text-[10px] text-slate-400 font-mono">+{msg.senderPhone}</span>
+                      )}
+                    </div>
+                  )}
+
                   <p className="text-sm leading-relaxed whitespace-pre-wrap relative z-10">{msg.content}</p>
                   
                   <div className="flex items-center justify-end gap-1.5 mt-1.5 opacity-60">

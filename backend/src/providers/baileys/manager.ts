@@ -228,13 +228,31 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
         const waMessageId = m.key.id ?? undefined;
 
+        // for group messages, extract sender phone from participant field
+        let senderPhone: string | undefined;
+        let senderName: string | undefined;
+        if (isGroup && !m.key.fromMe) {
+          const participant = m.key.participant ?? (m as any).participant;
+          if (participant && typeof participant === 'string') {
+            const local = participant.split('@')[0] ?? '';
+            const domain = participant.split('@')[1] ?? '';
+            if (domain !== 'lid') {
+              const digits = normalizeDigits(local);
+              if (isPlausiblePhoneDigits(digits)) {
+                senderPhone = digits;
+              }
+            }
+          }
+          senderName = m.pushName ?? undefined;
+        }
+
         // upsert conversation
         const conv = await prisma.conversation.upsert({
           where: { sessionId_phone: { sessionId, phone } },
           create: {
             sessionId,
             phone,
-            contactName: maybeName ?? phone,
+            contactName: maybeName ?? (isGroup ? phone : phone),
             lastMessage: content,
             unreadCount: m.key.fromMe ? 0 : 1,
             isGroup,
@@ -261,7 +279,9 @@ export async function ensure(sessionId: string): Promise<WASocket> {
             type: detectType(m.message),
             status: m.key.fromMe ? 'sent' : 'delivered',
             timestamp: m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000) : undefined,
-          },
+            ...(senderPhone ? { senderPhone } : {}),
+            ...(senderName ? { senderName } : {}),
+          } as any,
         });
 
         emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: saved });
@@ -491,6 +511,17 @@ export async function fetchGroups(sessionId: string) {
   if (!sock) throw new Error('Session not connected');
   const groups = await sock.groupFetchAllParticipating();
   return Object.values(groups);
+}
+
+export async function getProfilePictureUrl(sessionId: string, jid: string): Promise<string | null> {
+  const sock = get(sessionId);
+  if (!sock) return null;
+  try {
+    const url = await sock.profilePictureUrl(jid, 'image');
+    return url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function requestPairingCode(sessionId: string, phone: string): Promise<string> {

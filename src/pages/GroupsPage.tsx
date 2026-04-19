@@ -65,18 +65,19 @@ export const GroupsPage: React.FC = () => {
     }
   };
 
-  const loadSessionAndGroups = async () => {
-    setIsLoadingSession(true);
+  const loadSessionAndGroups = async (showLoader: boolean) => {
+    if (showLoader) setIsLoadingSession(true);
     let sessionList = sessions;
     try {
       sessionList = await sessionService.list();
       setSessions(sessionList);
     } catch {
-      // fail-closed: if backend sessions cannot be validated, force empty state
-      setSessions([]);
-      setActiveSessionId(null);
-      setGroups([]);
-      setIsLoadingSession(false);
+      if (showLoader) {
+        setSessions([]);
+        setActiveSessionId(null);
+        setGroups([]);
+        setIsLoadingSession(false);
+      }
       return;
     }
 
@@ -87,18 +88,18 @@ export const GroupsPage: React.FC = () => {
     } else {
       setGroups([]);
     }
-    setIsLoadingSession(false);
+    if (showLoader) setIsLoadingSession(false);
   };
 
   useEffect(() => {
-    loadSessionAndGroups().catch(() => {
+    loadSessionAndGroups(true).catch(() => {
       setActiveSessionId(null);
       setGroups([]);
       setIsLoadingSession(false);
     });
     const interval = setInterval(() => {
-      loadSessionAndGroups().catch(() => undefined);
-    }, 15000);
+      loadSessionAndGroups(false).catch(() => undefined);
+    }, 30000);
     return () => clearInterval(interval);
   }, [selectedSessionId]);
 
@@ -131,8 +132,12 @@ export const GroupsPage: React.FC = () => {
   };
 
   const extractDigitsFromJid = (jid: string) => {
+    const domain = jid.split('@')[1] ?? '';
+    if (domain === 'lid' || domain === 'g.us') return '';
     const localPart = jid.split('@')[0] ?? '';
-    return localPart.replace(/\D/g, '');
+    const digits = localPart.replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 15) return '';
+    return digits;
   };
 
   const formatBrazilPhone = (digits: string) => {

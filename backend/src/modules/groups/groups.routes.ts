@@ -8,9 +8,13 @@ import { NotFoundError } from '../../lib/errors.js';
 export async function groupsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  const cleanJidPhone = (jid: string) => {
+  const cleanJidPhone = (jid: string): string => {
+    const domain = jid.split('@')[1] ?? '';
+    if (domain === 'lid' || domain === 'g.us') return '';
     const local = jid.split('@')[0] ?? '';
-    return local.replace(/\D/g, '');
+    const digits = local.replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 15) return '';
+    return digits;
   };
 
   app.get('/api/sessions/:sessionId/groups', async (req) => {
@@ -29,8 +33,15 @@ export async function groupsRoutes(app: FastifyInstance) {
     const ownJid = baileys.getOwnJid(sessionId);
     const result: any[] = [];
     for (const g of groups) {
-      const admins = g.participants.filter((p) => p.admin).map((p) => p.id);
-      const members = g.participants.map((p) => p.id);
+      const isValidMember = (jid: string) => {
+        const domain = jid.split('@')[1] ?? '';
+        if (domain === 'lid' || domain === 'g.us') return false;
+        const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
+        return digits.length >= 8 && digits.length <= 15;
+      };
+      const admins = g.participants.filter((p) => p.admin && isValidMember(p.id)).map((p) => p.id);
+      const members = g.participants.filter((p) => isValidMember(p.id)).map((p) => p.id);
+      const photo = await baileys.getProfilePictureUrl(sessionId, g.id);
       const saved = await prisma.whatsAppGroup.upsert({
         where: { sessionId_waGroupId: { sessionId, waGroupId: g.id } },
         create: {
@@ -41,6 +52,7 @@ export async function groupsRoutes(app: FastifyInstance) {
           memberCount: members.length,
           admins,
           members,
+          photo: photo ?? undefined,
           isAdmin: ownJid ? admins.includes(ownJid) : false,
         },
         update: {
@@ -49,6 +61,7 @@ export async function groupsRoutes(app: FastifyInstance) {
           memberCount: members.length,
           admins,
           members,
+          photo: photo ?? undefined,
           isAdmin: ownJid ? admins.includes(ownJid) : false,
         },
       });
