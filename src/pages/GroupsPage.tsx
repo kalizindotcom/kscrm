@@ -72,7 +72,12 @@ export const GroupsPage: React.FC = () => {
       sessionList = await sessionService.list();
       setSessions(sessionList);
     } catch {
-      // fallback to store cache
+      // fail-closed: if backend sessions cannot be validated, force empty state
+      setSessions([]);
+      setActiveSessionId(null);
+      setGroups([]);
+      setIsLoadingSession(false);
+      return;
     }
 
     const sessionId = getActiveConnectedSessionId(sessionList);

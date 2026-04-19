@@ -128,7 +128,15 @@ export const DashboardPage: React.FC = () => {
       const ovData = await apiClient.get<any>('/api/dashboard/overview', { query: { sessionId: activeSession.id } });
       setOverview(ovData);
     } catch {
-      // keep previous state on error
+      // fail-closed: avoid showing stale metrics when session validation fails
+      setSessions([]);
+      setActiveSessionName(null);
+      setOverview({
+        contacts: { total: 0, optIn: 0 },
+        campaigns: { total: 0 },
+        sessions: { total: 0 },
+        delivery: { sent: 0, read: 0 },
+      });
     }
   };
 

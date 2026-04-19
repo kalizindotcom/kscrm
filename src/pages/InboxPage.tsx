@@ -132,7 +132,12 @@ export const InboxPage: React.FC = () => {
       sessionList = await sessionService.list();
       setSessions(sessionList);
     } catch {
-      // fallback to cache
+      // fail-closed: if backend sessions cannot be validated, force empty state
+      setSessions([]);
+      setActiveSessionId(null);
+      setLocalConversations([]);
+      setIsLoading(false);
+      return;
     }
 
     const sessionId = resolveActiveSessionId(sessionList);
