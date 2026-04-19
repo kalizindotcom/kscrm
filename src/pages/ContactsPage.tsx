@@ -139,7 +139,7 @@ export const ContactsPage: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setIsAddContactModalOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" /> Adicionar contato
+            <Plus className="w-4 h-4 mr-2" /> Adicionar manualmente
           </Button>
           <Button variant="outline" size="sm" onClick={() => setIsImportModalOpen(true)}>
             <Upload className="w-4 h-4 mr-2" /> Importar em massa
@@ -310,6 +310,7 @@ export const ContactsPage: React.FC = () => {
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         importBatch={selectedImport}
+        onContactsChanged={loadContacts}
       />
 
       <ExportModal

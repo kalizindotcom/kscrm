@@ -6,11 +6,13 @@ import { Badge } from '../ui/badge';
 import { Contact, ContactImport } from '../../types';
 import { cn } from '../../lib/utils';
 import { contactService } from '../../services/contactService';
+import { toast } from 'sonner';
 
 interface ImportDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   importBatch: ContactImport | null;
+  onContactsChanged?: () => void;
 }
 
 interface ValidationResult {
@@ -18,12 +20,13 @@ interface ValidationResult {
   phoneError: boolean;
 }
 
-export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, onClose, importBatch }) => {
+export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, onClose, importBatch, onContactsChanged }) => {
   const [search, setSearch] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [validated, setValidated] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
 
   React.useEffect(() => {
     if (!isOpen || !importBatch) {
@@ -81,6 +84,23 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
   const invalidCount = useMemo(() => {
     return contacts.filter((contact) => !validateContact(contact).isValid).length;
   }, [contacts]);
+
+  const handleDeleteContact = async (contactId: string) => {
+    const confirmed = confirm('Deseja realmente excluir este contato?');
+    if (!confirmed) return;
+
+    setDeletingIds((prev) => [...prev, contactId]);
+    try {
+      await contactService.delete(contactId);
+      setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+      onContactsChanged?.();
+      toast.success('Contato excluido com sucesso.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Falha ao excluir contato.');
+    } finally {
+      setDeletingIds((prev) => prev.filter((id) => id !== contactId));
+    }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -153,9 +173,10 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
             <table className="w-full text-left border-collapse table-fixed">
               <thead className="sticky top-0 bg-background z-10 border-b shadow-sm">
                 <tr className="bg-muted/50 text-muted-foreground text-[10px] uppercase tracking-wider">
-                  <th className="px-6 py-3 font-semibold w-1/2">Nome</th>
-                  <th className="px-6 py-3 font-semibold w-1/2">Telefone</th>
-                  <th className="px-6 py-3 font-semibold text-right w-24">Status</th>
+                  <th className="px-6 py-3 font-semibold w-[40%]">Nome</th>
+                  <th className="px-6 py-3 font-semibold w-[35%]">Telefone</th>
+                  <th className="px-6 py-3 font-semibold text-right w-[13%]">Status</th>
+                  <th className="px-6 py-3 font-semibold text-right w-[12%]">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -195,6 +216,21 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
                             </Badge>
                           )}
                         </td>
+                        <td className="px-6 py-3 text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteContact(contact.id)}
+                            disabled={deletingIds.includes(contact.id)}
+                          >
+                            {deletingIds.includes(contact.id) ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
+                        </td>
                       </tr>
                     );
                   })
@@ -214,7 +250,7 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
               <Button variant="outline" size="sm" onClick={onClose}>
                 Fechar
               </Button>
-              <Button size="sm">
+              <Button size="sm" disabled>
                 Salvar Alteracoes
               </Button>
             </div>
