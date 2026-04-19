@@ -13,6 +13,7 @@ import {
   List,
   FileSpreadsheet,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
@@ -46,6 +47,8 @@ export const ContactsPage: React.FC = () => {
   const [contactPhone, setContactPhone] = useState('');
   const [contactTags, setContactTags] = useState('');
   const [isCreatingContact, setIsCreatingContact] = useState(false);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [isDeletingContacts, setIsDeletingContacts] = useState(false);
 
   useEffect(() => {
     loadContacts();
@@ -132,6 +135,84 @@ export const ContactsPage: React.FC = () => {
     );
   });
 
+  const allFilteredSelected =
+    filteredContacts.length > 0 && filteredContacts.every((contact) => selectedContactIds.includes(contact.id));
+
+  const toggleContactSelection = (contactId: string) => {
+    setSelectedContactIds((prev) =>
+      prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [...prev, contactId],
+    );
+  };
+
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      const filteredIds = new Set(filteredContacts.map((contact) => contact.id));
+      setSelectedContactIds((prev) => prev.filter((id) => !filteredIds.has(id)));
+      return;
+    }
+
+    const merged = new Set(selectedContactIds);
+    filteredContacts.forEach((contact) => merged.add(contact.id));
+    setSelectedContactIds(Array.from(merged));
+  };
+
+  const handleDeleteContact = async (contactId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este contato?')) return;
+
+    setIsDeletingContacts(true);
+    try {
+      await contactService.delete(contactId);
+      setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+      setSelectedContactIds((prev) => prev.filter((id) => id !== contactId));
+      toast.success('Contato excluído com sucesso.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Não foi possível excluir o contato.');
+    } finally {
+      setIsDeletingContacts(false);
+    }
+  };
+
+  const handleDeleteSelectedContacts = async () => {
+    if (selectedContactIds.length === 0) {
+      toast.error('Selecione pelo menos um contato.');
+      return;
+    }
+    if (!confirm(`Deseja excluir ${selectedContactIds.length} contato(s) selecionado(s)?`)) return;
+
+    setIsDeletingContacts(true);
+    try {
+      await Promise.all(selectedContactIds.map((id) => contactService.delete(id)));
+      const selectedSet = new Set(selectedContactIds);
+      setContacts((prev) => prev.filter((contact) => !selectedSet.has(contact.id)));
+      setSelectedContactIds([]);
+      toast.success('Contatos selecionados excluídos com sucesso.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Falha ao excluir contatos selecionados.');
+    } finally {
+      setIsDeletingContacts(false);
+    }
+  };
+
+  const handleDeleteAllContacts = async () => {
+    if (contacts.length === 0) {
+      toast.error('Não há contatos para excluir.');
+      return;
+    }
+    if (!confirm(`Deseja excluir TODOS os ${contacts.length} contatos da lista?`)) return;
+
+    setIsDeletingContacts(true);
+    try {
+      await Promise.all(contacts.map((contact) => contactService.delete(contact.id)));
+      setContacts([]);
+      setSelectedContactIds([]);
+      toast.success('Todos os contatos foram excluídos.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Falha ao excluir todos os contatos.');
+    } finally {
+      setIsDeletingContacts(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -182,6 +263,24 @@ export const ContactsPage: React.FC = () => {
                   />
                 </div>
                 <div className="flex gap-2 w-full lg:w-auto">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="flex-1 lg:flex-none"
+                    onClick={handleDeleteAllContacts}
+                    disabled={isDeletingContacts || contacts.length === 0}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Excluir tudo
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 lg:flex-none border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={handleDeleteSelectedContacts}
+                    disabled={isDeletingContacts || selectedContactIds.length === 0}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Excluir selecionados
+                  </Button>
                   <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
                     <Filter className="w-4 h-4 mr-2" /> Filtros
                   </Button>
@@ -192,18 +291,28 @@ export const ContactsPage: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
+                      <th className="px-4 py-3 font-medium border-b w-[44px]">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={toggleSelectAllFiltered}
+                          className="w-4 h-4 accent-primary"
+                          aria-label="Selecionar todos os contatos filtrados"
+                        />
+                      </th>
                       <th className="px-6 py-3 font-medium border-b">Nome</th>
                       <th className="px-6 py-3 font-medium border-b">Telefone</th>
                       <th className="px-6 py-3 font-medium border-b">Origem</th>
                       <th className="px-6 py-3 font-medium border-b text-center">Tags</th>
                       <th className="px-6 py-3 font-medium border-b">Status</th>
                       <th className="px-6 py-3 font-medium border-b">Atualizado em</th>
+                      <th className="px-6 py-3 font-medium border-b text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {filteredContacts.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center">
+                        <td colSpan={8} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center gap-2">
                             <FileSpreadsheet className="w-12 h-12 text-muted-foreground/50" />
                             <p className="font-medium">Nenhum contato encontrado</p>
@@ -214,6 +323,15 @@ export const ContactsPage: React.FC = () => {
                     ) : (
                       filteredContacts.map((contact) => (
                         <tr key={contact.id} className="hover:bg-accent/50 transition-colors">
+                          <td className="px-4 py-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedContactIds.includes(contact.id)}
+                              onChange={() => toggleContactSelection(contact.id)}
+                              className="w-4 h-4 accent-primary"
+                              aria-label={`Selecionar contato ${contact.name}`}
+                            />
+                          </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded bg-primary/10 text-primary flex items-center justify-center">
@@ -248,6 +366,17 @@ export const ContactsPage: React.FC = () => {
                               <Calendar className="w-3 h-3" />
                               {formatDate(contact.updatedAt)}
                             </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteContact(contact.id)}
+                              disabled={isDeletingContacts}
+                            >
+                              <Trash2 className="w-4 h-4 mr-1" /> Excluir
+                            </Button>
                           </td>
                         </tr>
                       ))
