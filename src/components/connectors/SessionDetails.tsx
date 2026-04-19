@@ -149,6 +149,14 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
             <Button size="sm" variant="outline" className="h-8 bg-white/5 border-white/10 text-xs font-bold hover:bg-white/10 transition-colors">
               <ExternalLink className="w-3 h-3 mr-1.5" /> Gateway
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 bg-blue-500/10 border-blue-500/20 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-all"
+              onClick={() => onAction('sync', session)}
+            >
+              <RefreshCcw className="w-3 h-3 mr-1.5" /> Sincronizar
+            </Button>
             {session.status === 'connected' ? (
               <Button size="sm" variant="outline" className="h-8 bg-amber-500/10 border-amber-500/20 text-amber-500 text-xs font-bold hover:bg-amber-500/20 transition-all" onClick={() => onAction('pause', session)}>
                 <Pause className="w-3 h-3 mr-1.5" /> Pausar

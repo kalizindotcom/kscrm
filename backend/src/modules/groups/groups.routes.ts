@@ -8,6 +8,11 @@ import { NotFoundError } from '../../lib/errors.js';
 export async function groupsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
+  const cleanJidPhone = (jid: string) => {
+    const local = jid.split('@')[0] ?? '';
+    return local.replace(/\D/g, '');
+  };
+
   app.get('/api/sessions/:sessionId/groups', async (req) => {
     const { sessionId } = req.params as { sessionId: string };
     const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
@@ -80,7 +85,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
 
-    const phones = group.members.map((jid) => jid.split('@')[0]);
+    const phones = group.members.map((jid) => cleanJidPhone(jid)).filter(Boolean);
     if (format === 'csv') {
       const text = 'phone\n' + phones.join('\n');
       reply.header('Content-Type', 'text/csv');
@@ -108,7 +113,8 @@ export async function groupsRoutes(app: FastifyInstance) {
     });
     let processed = 0;
     for (const jid of group.members) {
-      const phone = jid.split('@')[0];
+      const phone = cleanJidPhone(jid);
+      if (!phone) continue;
       try {
         await prisma.contact.upsert({
           where: { phone },

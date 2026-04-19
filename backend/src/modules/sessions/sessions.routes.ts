@@ -82,6 +82,11 @@ export async function sessionsRoutes(app: FastifyInstance) {
     return service.syncContacts(req.user!.sub, id);
   });
 
+  app.post('/api/sessions/:id/sync-whatsapp', async (req) => {
+    const { id } = req.params as { id: string };
+    return service.syncWhatsApp(req.user!.sub, id);
+  });
+
   app.get('/api/sessions/:id/logs', async (req) => {
     const { id } = req.params as { id: string };
     const { limit } = z.object({ limit: z.coerce.number().optional() }).parse(req.query);

@@ -167,15 +167,18 @@ export async function ensure(sessionId: string): Promise<WASocket> {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+    if (type !== 'notify' && type !== 'append') return;
     for (const m of messages) {
       if (!m.message) continue;
-      if (m.key.fromMe) continue; // recebidas
       const remoteJid = m.key.remoteJid;
       if (!remoteJid) continue;
-      const phone = remoteJid.split('@')[0];
-      const content = extractText(m.message);
       const isGroup = remoteJid.endsWith('@g.us');
+      const rawId = remoteJid.split('@')[0] ?? '';
+      const phone = isGroup ? rawId : rawId.replace(/\D/g, '') || rawId;
+      const content = extractText(m.message);
+      if (!content.trim()) continue;
+      const direction = m.key.fromMe ? 'outbound' : 'inbound';
+      const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
 
       // upsert conversation
       const conv = await prisma.conversation.upsert({
@@ -183,16 +186,16 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         create: {
           sessionId,
           phone,
-          contactName: m.pushName ?? phone,
+          contactName: maybeName ?? phone,
           lastMessage: content,
-          unreadCount: 1,
+          unreadCount: m.key.fromMe ? 0 : 1,
           isGroup,
           status: 'open',
         },
         update: {
           lastMessage: content,
-          unreadCount: { increment: 1 },
-          contactName: m.pushName ?? undefined,
+          unreadCount: m.key.fromMe ? undefined : { increment: 1 },
+          contactName: maybeName ?? undefined,
         },
       });
 
@@ -200,10 +203,11 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         data: {
           conversationId: conv.id,
           waMessageId: m.key.id ?? undefined,
-          direction: 'inbound',
+          direction,
           content,
           type: detectType(m.message),
-          status: 'delivered',
+          status: m.key.fromMe ? 'sent' : 'delivered',
+          timestamp: m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000) : undefined,
         },
       });
 
@@ -285,8 +289,14 @@ export async function remove(sessionId: string) {
 /* ─────────── Envio com anti-ban ─────────── */
 
 function jidOf(phone: string, isGroup = false) {
-  const clean = phone.replace(/\D/g, '');
-  return isGroup ? `${clean}@g.us` : `${clean}@s.whatsapp.net`;
+  const trimmed = phone.trim();
+  if (trimmed.includes('@')) return trimmed;
+  if (isGroup) {
+    const cleanGroup = trimmed.replace(/[^0-9-]/g, '');
+    return `${cleanGroup}@g.us`;
+  }
+  const clean = trimmed.replace(/\D/g, '');
+  return `${clean}@s.whatsapp.net`;
 }
 
 function buildButtonsFallbackText(
@@ -315,7 +325,12 @@ async function humanizedTyping(sock: WASocket, jid: string) {
   }
 }
 
-export async function sendText(sessionId: string, phone: string, text: string, opts: { applyDelay?: boolean } = {}) {
+export async function sendText(
+  sessionId: string,
+  phone: string,
+  text: string,
+  opts: { applyDelay?: boolean; isGroup?: boolean } = {},
+) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
 
@@ -323,7 +338,7 @@ export async function sendText(sessionId: string, phone: string, text: string, o
   assertAllowedOrThrow(q);
   if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
-  const jid = jidOf(phone);
+  const jid = jidOf(phone, opts.isGroup);
   await humanizedTyping(sock, jid);
   const result = await sock.sendMessage(jid, { text });
   await incrementCounters(sessionId);
@@ -336,7 +351,7 @@ export async function sendMedia(
   sessionId: string,
   phone: string,
   media: { buffer: Buffer; mimetype: string; caption?: string; type: 'image' | 'video' | 'audio' | 'document'; filename?: string },
-  opts: { applyDelay?: boolean } = {},
+  opts: { applyDelay?: boolean; isGroup?: boolean } = {},
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
@@ -344,7 +359,7 @@ export async function sendMedia(
   assertAllowedOrThrow(q);
   if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
-  const jid = jidOf(phone);
+  const jid = jidOf(phone, opts.isGroup);
   await humanizedTyping(sock, jid);
 
   const payload: any =
@@ -376,7 +391,7 @@ export async function sendButtons(
     footer?: string;
     buttons: { id: string; text: string; type?: 'reply' | 'url' | 'call'; value?: string }[];
   },
-  opts: { applyDelay?: boolean } = {},
+  opts: { applyDelay?: boolean; isGroup?: boolean } = {},
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
@@ -384,7 +399,7 @@ export async function sendButtons(
   assertAllowedOrThrow(q);
   if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
-  const jid = jidOf(phone);
+  const jid = jidOf(phone, opts.isGroup);
   await humanizedTyping(sock, jid);
 
   const buttons = data.buttons.map((b, i) => ({

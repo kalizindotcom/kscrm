@@ -107,8 +107,17 @@ export const LiveViewPage: React.FC = () => {
                        null;
 
   useEffect(() => {
-    conversationService.list()
-      .then(convs => {
+    const loadConversations = async () => {
+      if (!activeSession?.id) {
+        setConversations([]);
+        setSelectedChatId(null);
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const convs = await conversationService.list({ sessionId: activeSession.id });
         const live: LiveConversation[] = convs.map(c => ({
           id: c.id,
           contactName: c.contactName,
@@ -118,29 +127,40 @@ export const LiveViewPage: React.FC = () => {
           lastMessageTime: c.updatedAt,
           unreadCount: c.unreadCount,
           status: c.status === 'resolved' ? 'archived' : 'active',
-          origin: 'direct' as const,
-          tags: [],
+          origin: c.isGroup ? 'api' : 'direct',
+          tags: c.isGroup ? ['grupo'] : [],
           messages: [],
           metrics: { totalSent: 0, totalReceived: 0, avgResponseTime: '—', responseRate: '—', failureCount: 0 },
         }));
         setConversations(live);
-      })
-      .catch(() => setConversations([]))
-      .finally(() => setIsLoading(false));
-  }, []);
+      } catch {
+        setConversations([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadConversations().catch(() => undefined);
+    const interval = setInterval(() => {
+      loadConversations().catch(() => undefined);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [activeSession?.id]);
 
   useEffect(() => {
     if (!selectedChatId) return;
     conversationService.getMessages(selectedChatId, { limit: 50 })
       .then(msgs => {
-        const liveMsgs: LiveMessage[] = msgs.map(m => ({
-          id: m.id,
-          content: m.content,
-          timestamp: m.timestamp,
-          status: m.status as LiveMessage['status'],
-          type: (m.type === 'image' || m.type === 'file') ? m.type : 'text',
-          fromMe: m.direction === 'outbound',
-        }));
+        const liveMsgs: LiveMessage[] = [...msgs]
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+          .map(m => ({
+            id: m.id,
+            content: m.content,
+            timestamp: m.timestamp,
+            status: m.status as LiveMessage['status'],
+            type: (m.type === 'image' || m.type === 'file') ? m.type : 'text',
+            fromMe: m.direction === 'outbound',
+          }));
         setConversations(prev => prev.map(c =>
           c.id === selectedChatId ? { ...c, messages: liveMsgs } : c
         ));

@@ -192,6 +192,84 @@ export async function syncContacts(userId: string, id: string) {
   return get(userId, id);
 }
 
+export async function syncWhatsApp(userId: string, id: string) {
+  await assertSessionOwnership(userId, id);
+  const session = await prisma.session.findUnique({ where: { id } });
+  if (!session) throw new NotFoundError('Sessão não encontrada');
+  if (session.status !== 'connected') throw new Error('Sessão não conectada');
+
+  await prisma.session.update({
+    where: { id },
+    data: {
+      status: 'syncing',
+      syncCount: { increment: 1 },
+      lastActivity: new Date(),
+    },
+  });
+
+  await prisma.sessionLog.create({
+    data: {
+      sessionId: id,
+      type: 'sync_whatsapp',
+      severity: 'info',
+      message: 'Sincronização completa do WhatsApp iniciada',
+      origin: 'system',
+    },
+  });
+
+  const groups = await baileys.fetchGroups(id);
+  const ownJid = baileys.getOwnJid(id);
+
+  for (const g of groups) {
+    const admins = g.participants.filter((p) => p.admin).map((p) => p.id);
+    const members = g.participants.map((p) => p.id);
+    await prisma.whatsAppGroup.upsert({
+      where: { sessionId_waGroupId: { sessionId: id, waGroupId: g.id } },
+      create: {
+        sessionId: id,
+        waGroupId: g.id,
+        name: g.subject,
+        description: g.desc ?? undefined,
+        memberCount: members.length,
+        admins,
+        members,
+        isAdmin: ownJid ? admins.includes(ownJid) : false,
+      },
+      update: {
+        name: g.subject,
+        description: g.desc ?? undefined,
+        memberCount: members.length,
+        admins,
+        members,
+        isAdmin: ownJid ? admins.includes(ownJid) : false,
+      },
+    });
+  }
+
+  await prisma.session.update({
+    where: { id },
+    data: {
+      status: 'connected',
+      lastActivity: new Date(),
+    },
+  });
+
+  await prisma.sessionLog.create({
+    data: {
+      sessionId: id,
+      type: 'sync_whatsapp',
+      severity: 'success',
+      message: `Sincronização concluída com ${groups.length} grupos atualizados`,
+      origin: 'system',
+    },
+  });
+
+  return {
+    session: await get(userId, id),
+    groupsSynced: groups.length,
+  };
+}
+
 export async function logs(userId: string, id: string, limit = 100) {
   await assertSessionOwnership(userId, id);
   return prisma.sessionLog.findMany({

@@ -130,14 +130,41 @@ export const GroupsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const extractDigitsFromJid = (jid: string) => {
+    const localPart = jid.split('@')[0] ?? '';
+    return localPart.replace(/\D/g, '');
+  };
+
+  const formatBrazilPhone = (digits: string) => {
+    if (!digits) return '';
+    let normalized = digits;
+    if (!normalized.startsWith('55') && (normalized.length === 10 || normalized.length === 11)) {
+      normalized = `55${normalized}`;
+    }
+    if (normalized.startsWith('55') && normalized.length === 13) {
+      return `+55 ${normalized.slice(2, 4)} ${normalized.slice(4, 9)}-${normalized.slice(9)}`;
+    }
+    if (normalized.startsWith('55') && normalized.length === 12) {
+      return `+55 ${normalized.slice(2, 4)} ${normalized.slice(4, 8)}-${normalized.slice(8)}`;
+    }
+    if (normalized.length > 2) return `+${normalized}`;
+    return normalized;
+  };
+
+  const formatMemberPhone = (jid: string) => {
+    const digits = extractDigitsFromJid(jid);
+    return formatBrazilPhone(digits);
+  };
+
   const getMemberData = (group: WhatsAppGroup) => {
     const allMembers = [...new Set([...group.admins, ...group.members])];
     return allMembers.map((member) => {
-      const cleanJid = member.replace('@s.whatsapp.net', '').replace('@g.us', '');
+      const digits = extractDigitsFromJid(member);
+      const formattedPhone = formatBrazilPhone(digits);
       return {
-        name: cleanJid,
-        cleanPhone: cleanJid,
-        displayPhone: cleanJid.startsWith('55') ? `+${cleanJid}` : cleanJid,
+        name: formattedPhone || member,
+        cleanPhone: digits,
+        displayPhone: formattedPhone || member,
         isAdmin: group.admins.includes(member),
         joinDate: new Date().toLocaleDateString('pt-BR')
       };
@@ -417,17 +444,17 @@ export const GroupsPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
-                  <h4 className="font-bold flex items-center gap-2 text-primary/80">
-                    <Shield className="w-4 h-4" /> Admins
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedGroup.admins.map((admin, idx) => (
-                      <Badge key={idx} variant="outline" className="bg-primary/5 border-primary/20">
-                        {admin}
-                      </Badge>
-                    ))}
+                    <h4 className="font-bold flex items-center gap-2 text-primary/80">
+                      <Shield className="w-4 h-4" /> Admins
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedGroup.admins.map((admin, idx) => (
+                        <Badge key={idx} variant="outline" className="bg-primary/5 border-primary/20">
+                          {formatMemberPhone(admin) || admin}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                </div>
                 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between mb-2">
@@ -449,7 +476,7 @@ export const GroupsPage: React.FC = () => {
                   <div className="flex flex-wrap gap-2">
                     {selectedGroup.members.slice(0, 5).map((member, idx) => (
                       <Badge key={idx} variant="outline" className="bg-muted/20 border-muted/30">
-                        {member}
+                        {formatMemberPhone(member) || member}
                       </Badge>
                     ))}
                     {selectedGroup.memberCount > 5 && (

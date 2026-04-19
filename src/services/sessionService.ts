@@ -27,5 +27,7 @@ export const sessionService = {
   pairingCode: (id: string, phone: string) =>
     apiClient.post<{ code: string }>(`/api/sessions/${id}/pairing-code`, { phone }),
   syncContacts: (id: string) => apiClient.post<Session>(`/api/sessions/${id}/sync-contacts`),
+  syncWhatsApp: (id: string) =>
+    apiClient.post<{ session: Session; groupsSynced: number }>(`/api/sessions/${id}/sync-whatsapp`),
   logs: (id: string, limit = 50) => apiClient.get<SessionLog[]>(`/api/sessions/${id}/logs`, { query: { limit } }),
 };

@@ -121,6 +121,16 @@ export const ConnectorsDashboard: React.FC = () => {
           });
           toast.info(`Sessão ${session.name} encerrada.`);
           break;
+        case 'sync': {
+          const result = await sessionService.syncWhatsApp(session.id);
+          updateSession(session.id, {
+            status: result.session.status,
+            syncCount: result.session.syncCount,
+            lastActivity: result.session.lastActivity,
+          });
+          toast.success(`Sincronização concluída: ${result.groupsSynced} grupos atualizados.`);
+          break;
+        }
         case 'delete':
           await sessionService.remove(session.id);
           removeSession(session.id);

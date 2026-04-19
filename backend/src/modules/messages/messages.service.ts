@@ -3,11 +3,31 @@ import * as baileys from '../../providers/baileys/manager.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { emitTo } from '../../ws/index.js';
 
-async function ensureConversation(sessionId: string, phone: string, contactName?: string) {
+function resolveTarget(rawPhone: string) {
+  const trimmed = rawPhone.trim();
+  const atIndex = trimmed.indexOf('@');
+  if (atIndex > 0) {
+    const local = trimmed.slice(0, atIndex);
+    const domain = trimmed.slice(atIndex + 1).toLowerCase();
+    const isGroup = domain === 'g.us';
+    return {
+      phone: isGroup ? local : local.replace(/\D/g, '') || local,
+      isGroup,
+    };
+  }
+
+  const looksLikeGroupId = /^\d{6,}-\d{6,}$/.test(trimmed);
+  return {
+    phone: looksLikeGroupId ? trimmed.replace(/[^0-9-]/g, '') : trimmed.replace(/\D/g, ''),
+    isGroup: looksLikeGroupId,
+  };
+}
+
+async function ensureConversation(sessionId: string, phone: string, isGroup = false, contactName?: string) {
   return prisma.conversation.upsert({
     where: { sessionId_phone: { sessionId, phone } },
-    create: { sessionId, phone, contactName: contactName ?? phone, lastMessage: '' },
-    update: { contactName: contactName ?? undefined },
+    create: { sessionId, phone, contactName: contactName ?? phone, lastMessage: '', isGroup },
+    update: { contactName: contactName ?? undefined, isGroup },
   });
 }
 
@@ -16,7 +36,8 @@ export async function sendText(userId: string, sessionId: string, phone: string,
   if (!session) throw new NotFoundError('Sessão não encontrada');
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
-  const conv = await ensureConversation(sessionId, phone);
+  const target = resolveTarget(phone);
+  const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
 
   const pending = await prisma.message.create({
     data: {
@@ -31,7 +52,7 @@ export async function sendText(userId: string, sessionId: string, phone: string,
   emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: pending });
 
   try {
-    const result = await baileys.sendText(sessionId, phone, content);
+    const result = await baileys.sendText(sessionId, target.phone, content, { isGroup: target.isGroup });
     const updated = await prisma.message.update({
       where: { id: pending.id },
       data: {
@@ -76,7 +97,8 @@ export async function sendButtons(
   if (!session) throw new NotFoundError('Sessão não encontrada');
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
-  const conv = await ensureConversation(sessionId, phone);
+  const target = resolveTarget(phone);
+  const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
 
   const pending = await prisma.message.create({
     data: {
@@ -91,7 +113,7 @@ export async function sendButtons(
   emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: pending });
 
   try {
-    const result = await baileys.sendButtons(sessionId, phone, payload);
+    const result = await baileys.sendButtons(sessionId, target.phone, payload, { isGroup: target.isGroup });
     const updated = await prisma.message.update({
       where: { id: pending.id },
       data: { status: 'sent', waMessageId: (result as any)?.key?.id ?? undefined },
@@ -129,7 +151,8 @@ export async function sendMedia(
   if (!session) throw new NotFoundError('Sessão não encontrada');
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
-  const conv = await ensureConversation(sessionId, phone);
+  const target = resolveTarget(phone);
+  const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
   const pending = await prisma.message.create({
     data: {
       conversationId: conv.id,
@@ -143,7 +166,7 @@ export async function sendMedia(
   emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: pending });
 
   try {
-    const result = await baileys.sendMedia(sessionId, phone, media);
+    const result = await baileys.sendMedia(sessionId, target.phone, media, { isGroup: target.isGroup });
     const updated = await prisma.message.update({
       where: { id: pending.id },
       data: { status: 'sent', waMessageId: (result as any)?.key?.id ?? undefined },
