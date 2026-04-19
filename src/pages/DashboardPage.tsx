@@ -95,18 +95,38 @@ const MetricCard = ({ label, value, change, trend, icon: Icon, colorClass, progr
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const { sessions, setSessions } = useSessionStore();
+  const { sessions, setSessions, selectedSessionId } = useSessionStore();
   const [overview, setOverview] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
+
+  const resolveActiveConnectedSession = (sessionList = sessions) => {
+    const selectedConnected =
+      selectedSessionId != null
+        ? sessionList.find((session) => session.id === selectedSessionId && session.status === 'connected')
+        : null;
+    return selectedConnected ?? sessionList.find((session) => session.status === 'connected') ?? null;
+  };
 
   const loadData = async () => {
     try {
-      const [ovData, sessData] = await Promise.all([
-        apiClient.get<any>('/api/dashboard/overview'),
-        sessionService.list(),
-      ]);
-      setOverview(ovData);
+      const sessData = await sessionService.list();
       setSessions(sessData);
+      const activeSession = resolveActiveConnectedSession(sessData);
+      setActiveSessionName(activeSession?.name ?? null);
+
+      if (!activeSession) {
+        setOverview({
+          contacts: { total: 0, optIn: 0 },
+          campaigns: { total: 0 },
+          sessions: { total: 0 },
+          delivery: { sent: 0, read: 0 },
+        });
+        return;
+      }
+
+      const ovData = await apiClient.get<any>('/api/dashboard/overview', { query: { sessionId: activeSession.id } });
+      setOverview(ovData);
     } catch {
       // keep previous state on error
     }
@@ -116,7 +136,7 @@ export const DashboardPage: React.FC = () => {
     loadData().catch(() => undefined);
     const iv = setInterval(() => loadData().catch(() => undefined), 30_000);
     return () => clearInterval(iv);
-  }, []);
+  }, [selectedSessionId]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -182,7 +202,7 @@ export const DashboardPage: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter text-neon-gradient">
             COMMAND CENTER
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground font-medium">Monitoramento global de métricas e performance em tempo real.</p>
+          <p className="text-xs sm:text-sm text-muted-foreground font-medium">{activeSessionName ? `Metricas reais da sessao ativa: ${activeSessionName}.` : 'Conecte uma sessao para visualizar metricas reais.'}</p>
         </div>
         <div className="hidden md:flex gap-4 items-center">
           <div className="text-right">
@@ -328,3 +348,4 @@ export const DashboardPage: React.FC = () => {
     </div>
   );
 };
+

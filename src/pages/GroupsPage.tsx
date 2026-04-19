@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Plus,
   Search,
   Filter,
   Users,
@@ -11,7 +10,10 @@ import {
   Download,
   Info,
   Save,
-  CheckCircle2
+  CheckCircle2,
+  Globe,
+  Zap,
+  ShieldAlert
 } from 'lucide-react';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
 import {
@@ -35,6 +37,8 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://
 export const GroupsPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<WhatsAppGroup | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
@@ -42,10 +46,14 @@ export const GroupsPage: React.FC = () => {
   const [isSaveAgendaModalOpen, setIsSaveAgendaModalOpen] = useState(false);
   const [agendaName, setAgendaName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const { sessions, setSessions } = useSessionStore();
+  const { sessions, setSessions, selectedSessionId, openCreateSessionModal } = useSessionStore();
 
-  const getConnectedSessionId = () => {
-    return sessions.find(s => s.status === 'connected')?.id ?? null;
+  const getActiveConnectedSessionId = (sessionList: typeof sessions = sessions) => {
+    const selectedConnected =
+      selectedSessionId != null
+        ? sessionList.find((session) => session.id === selectedSessionId && session.status === 'connected')
+        : null;
+    return selectedConnected?.id ?? sessionList.find((session) => session.status === 'connected')?.id ?? null;
   };
 
   const loadGroups = async (sessionId: string) => {
@@ -57,25 +65,40 @@ export const GroupsPage: React.FC = () => {
     }
   };
 
+  const loadSessionAndGroups = async () => {
+    setIsLoadingSession(true);
+    let sessionList = sessions;
+    try {
+      sessionList = await sessionService.list();
+      setSessions(sessionList);
+    } catch {
+      // fallback to store cache
+    }
+
+    const sessionId = getActiveConnectedSessionId(sessionList);
+    setActiveSessionId(sessionId);
+    if (sessionId) {
+      await loadGroups(sessionId);
+    } else {
+      setGroups([]);
+    }
+    setIsLoadingSession(false);
+  };
+
   useEffect(() => {
-    const init = async () => {
-      let sessionList = sessions;
-      if (!sessionList.length) {
-        try {
-          sessionList = await sessionService.list();
-          setSessions(sessionList);
-        } catch {
-          return;
-        }
-      }
-      const connected = sessionList.find(s => s.status === 'connected');
-      if (connected) loadGroups(connected.id);
-    };
-    init();
-  }, []);
+    loadSessionAndGroups().catch(() => {
+      setActiveSessionId(null);
+      setGroups([]);
+      setIsLoadingSession(false);
+    });
+    const interval = setInterval(() => {
+      loadSessionAndGroups().catch(() => undefined);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedSessionId]);
 
   const handleGlobalSync = async () => {
-    const sessionId = getConnectedSessionId();
+    const sessionId = activeSessionId;
     if (!sessionId) {
       alert('Nenhuma sessão conectada encontrada. Conecte uma sessão primeiro.');
       return;
@@ -158,6 +181,84 @@ export const GroupsPage: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  if (isLoadingSession) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-sm text-muted-foreground animate-pulse">Carregando sessao ativa...</div>
+      </div>
+    );
+  }
+
+  if (!activeSessionId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] p-8">
+        <div className="max-w-2xl w-full bg-card/40 backdrop-blur-xl border border-primary/20 rounded-[2rem] p-12 text-center shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+          <div className="absolute -top-24 -left-24 w-48 h-48 bg-primary/10 rounded-full blur-[80px]" />
+          <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-secondary/10 rounded-full blur-[80px]" />
+
+          <div className="relative z-10">
+            <div className="flex justify-center mb-8">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center rotate-12 shadow-[0_0_30px_rgba(var(--primary),0.2)]">
+                  <ShieldAlert className="w-12 h-12 text-primary" />
+                </div>
+                <div className="absolute -top-4 -right-4 w-12 h-12 rounded-2xl bg-secondary/20 border border-secondary/30 flex items-center justify-center -rotate-12 shadow-[0_0_20px_rgba(var(--secondary),0.3)]">
+                  <Zap className="w-6 h-6 text-secondary" />
+                </div>
+              </div>
+            </div>
+
+            <h2 className="text-4xl font-black text-white mb-4 tracking-tight leading-tight">
+              Grupos Indisponiveis
+            </h2>
+            <p className="text-slate-400 text-lg mb-10 max-w-md mx-auto leading-relaxed">
+              Para listar grupos reais, voce precisa de uma <span className="text-primary font-bold">sessao ativa e conectada</span>.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10 text-left">
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <Globe className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white mb-1">Status Global</h4>
+                  <p className="text-xs text-slate-500">Nenhuma sessao conectada foi encontrada.</p>
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center shrink-0">
+                  <RefreshCw className="w-5 h-5 text-secondary" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white mb-1">Sincronizacao</h4>
+                  <p className="text-xs text-slate-500">Aguardando uma conexao ativa para carregar os grupos.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Button
+                onClick={openCreateSessionModal}
+                className="w-full sm:w-auto px-8 py-6 rounded-2xl bg-primary text-primary-foreground font-bold text-lg hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-3"
+              >
+                CONECTAR AGORA
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto px-8 py-6 rounded-2xl border-white/10 bg-white/5 text-white font-bold text-lg hover:bg-white/10 hover:border-white/20 transition-all flex items-center gap-3"
+                onClick={() => loadSessionAndGroups().catch(() => undefined)}
+              >
+                <RefreshCw className="w-5 h-5" />
+                VERIFICAR NOVAMENTE
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-20">

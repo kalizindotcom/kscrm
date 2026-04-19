@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 
@@ -7,13 +8,52 @@ export async function reportsRoutes(app: FastifyInstance) {
 
   app.get('/api/dashboard/overview', async (req) => {
     const userId = req.user!.sub;
+    const { sessionId } = z.object({ sessionId: z.string().optional() }).parse(req.query);
+
+    const availableSessions = await prisma.session.findMany({
+      where: { userId, ...(sessionId ? { id: sessionId } : {}) },
+      select: { id: true },
+    });
+
+    const sessionIds = availableSessions.map((s) => s.id);
+    const phonesInScope =
+      sessionIds.length > 0
+        ? await prisma.conversation.findMany({
+            where: { sessionId: { in: sessionIds } },
+            select: { phone: true },
+            distinct: ['phone'],
+          })
+        : [];
+
+    const phones = phonesInScope.map((row) => row.phone);
+
     const [contactsTotal, contactsOptIn, campaigns, sessions, messagesSent, messagesRead] = await Promise.all([
-      prisma.contact.count(),
-      prisma.contact.count({ where: { optIn: 'granted' } }),
-      prisma.campaign.count({ where: { userId } }),
-      prisma.session.count({ where: { userId } }),
-      prisma.message.count({ where: { direction: 'outbound', status: { in: ['sent', 'delivered', 'read'] } } }),
-      prisma.message.count({ where: { direction: 'outbound', status: 'read' } }),
+      sessionId ? Promise.resolve(phones.length) : prisma.contact.count(),
+      sessionId
+        ? phones.length
+          ? prisma.contact.count({ where: { phone: { in: phones }, optIn: 'granted' } })
+          : Promise.resolve(0)
+        : prisma.contact.count({ where: { optIn: 'granted' } }),
+      prisma.campaign.count({ where: { userId, ...(sessionId ? { sessionId } : {}) } }),
+      Promise.resolve(sessionIds.length),
+      sessionIds.length
+        ? prisma.message.count({
+            where: {
+              direction: 'outbound',
+              status: { in: ['sent', 'delivered', 'read'] },
+              conversation: { sessionId: { in: sessionIds } },
+            },
+          })
+        : Promise.resolve(0),
+      sessionIds.length
+        ? prisma.message.count({
+            where: {
+              direction: 'outbound',
+              status: 'read',
+              conversation: { sessionId: { in: sessionIds } },
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
     return {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { NotFoundError } from '../../lib/errors.js';
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -66,6 +67,27 @@ export async function contactsRoutes(app: FastifyInstance) {
     return prisma.contactImport.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   });
 
+  app.get('/api/contacts/imports/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const imp = await prisma.contactImport.findUnique({ where: { id } });
+    if (!imp) throw new NotFoundError('Importacao nao encontrada');
+
+    const contacts = await prisma.contact.findMany({
+      where: {
+        origin: {
+          startsWith: `import:${id}`,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 2000,
+    });
+
+    return {
+      ...imp,
+      contacts,
+    };
+  });
+
   app.post('/api/contacts/import', async (req) => {
     const file = await (req as any).file();
     if (!file) throw new Error('Arquivo ausente');
@@ -99,7 +121,10 @@ export async function contactsRoutes(app: FastifyInstance) {
             name: cname ?? phone,
             origin: `import:${imp.id}`,
           },
-          update: { name: cname ?? undefined },
+          update: {
+            name: cname ?? undefined,
+            origin: `import:${imp.id}`,
+          },
         });
         processed++;
       } catch {

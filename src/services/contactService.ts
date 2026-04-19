@@ -8,6 +8,10 @@ interface PaginatedContacts {
   pageSize: number;
 }
 
+interface ContactImportDetails extends ContactImport {
+  contacts: Contact[];
+}
+
 export const contactService = {
   list: async (params?: {
     search?: string;
@@ -52,5 +56,14 @@ export const contactService = {
 
   listImports: async (): Promise<ContactImport[]> => {
     return apiClient.get<ContactImport[]>('/api/contacts/imports');
+  },
+
+  getImportDetails: async (importId: string): Promise<ContactImportDetails> => {
+    return apiClient.get<ContactImportDetails>(`/api/contacts/imports/${importId}`);
+  },
+
+  listImportContacts: async (importId: string): Promise<Contact[]> => {
+    const details = await contactService.getImportDetails(importId);
+    return details.contacts ?? [];
   },
 };

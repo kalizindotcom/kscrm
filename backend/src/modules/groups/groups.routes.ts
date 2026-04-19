@@ -112,8 +112,8 @@ export async function groupsRoutes(app: FastifyInstance) {
       try {
         await prisma.contact.upsert({
           where: { phone },
-          create: { phone, name: phone, origin: `group:${group.id}` },
-          update: {},
+          create: { phone, name: phone, origin: `import:${imp.id}:group:${group.id}` },
+          update: { origin: `import:${imp.id}:group:${group.id}` },
         });
         processed++;
       } catch {}

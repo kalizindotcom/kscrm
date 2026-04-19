@@ -1,32 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Download, 
-  Upload, 
-  MoreHorizontal, 
-  Phone,
-  Tag,
+import {
+  Plus,
+  Search,
+  Filter,
+  Download,
+  Upload,
+  MoreHorizontal,
   Calendar,
   ChevronLeft,
   ChevronRight,
-  Loader2,
-  Users,
   LayoutGrid,
   List,
   FileSpreadsheet,
-  Clock,
-  CheckCircle2,
-  AlertCircle
+  Loader2,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { toast } from 'sonner';
+import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { contactService } from '../services/contactService';
 import { Contact, ContactImport } from '../types';
-import { cn, formatDate } from '../lib/utils';
+import { formatDate } from '../lib/utils';
 import { ImportModal } from '../components/contacts/ImportModal';
 import { ImportKanban } from '../components/contacts/ImportKanban';
 import { ImportDetailsModal } from '../components/contacts/ImportDetailsModal';
@@ -41,8 +39,13 @@ export const ContactsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [selectedImport, setSelectedImport] = useState<ContactImport | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  
   const [imports, setImports] = useState<ContactImport[]>([]);
+
+  const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactTags, setContactTags] = useState('');
+  const [isCreatingContact, setIsCreatingContact] = useState(false);
 
   useEffect(() => {
     loadContacts();
@@ -50,7 +53,7 @@ export const ContactsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const hasPending = imports.some(i => i.status === 'pending' || i.status === 'processing');
+    const hasPending = imports.some((item) => item.status === 'pending' || item.status === 'processing');
     if (!hasPending) return;
     const interval = setInterval(loadImports, 5000);
     return () => clearInterval(interval);
@@ -78,17 +81,50 @@ export const ContactsPage: React.FC = () => {
   };
 
   const handleImport = async (files: File[], name: string) => {
+    const file = files[0];
+    if (!file) return;
+
+    await contactService.importList(file, name);
+    await Promise.all([loadImports(), loadContacts()]);
+    toast.success('Importacao concluida com contatos reais do arquivo.');
+  };
+
+  const handleAddContact = async () => {
+    const normalizedPhone = contactPhone.replace(/\D/g, '');
+    if (!contactName.trim() || normalizedPhone.length < 8) {
+      toast.error('Informe nome e telefone valido para continuar.');
+      return;
+    }
+
+    setIsCreatingContact(true);
     try {
-      const newImport = await contactService.importList(files[0], name);
-      setImports(prev => [newImport, ...prev]);
-    } catch (error) {
-      console.error('Failed to import contacts', error);
+      const created = await contactService.create({
+        name: contactName.trim(),
+        phone: normalizedPhone,
+        origin: 'manual',
+        status: 'active',
+        optIn: 'unknown',
+        tags: contactTags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      });
+
+      setContacts((prev) => [created, ...prev]);
+      setIsAddContactModalOpen(false);
+      setContactName('');
+      setContactPhone('');
+      setContactTags('');
+      toast.success('Contato adicionado com sucesso.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Nao foi possivel criar o contato.');
+    } finally {
+      setIsCreatingContact(false);
     }
   };
 
-  const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone.includes(search)
+  const filteredImports = imports.filter(
+    (imp) => imp.name.toLowerCase().includes(search.toLowerCase()) || imp.filename.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -97,8 +133,14 @@ export const ContactsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Contatos</h1>
           <p className="text-muted-foreground">Gerencie sua base de leads e clientes.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {loading ? 'Sincronizando contatos...' : `${contacts.length} contatos ativos carregados`}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => setIsAddContactModalOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" /> Adicionar contato
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setIsImportModalOpen(true)}>
             <Upload className="w-4 h-4 mr-2" /> Importar em massa
           </Button>
@@ -115,7 +157,7 @@ export const ContactsPage: React.FC = () => {
               <List className="w-4 h-4" /> Todos os Contatos
             </TabsTrigger>
             <TabsTrigger value="imports" className="flex items-center gap-2">
-              <LayoutGrid className="w-4 h-4" /> Importações (Kanban)
+              <LayoutGrid className="w-4 h-4" /> Importacoes (Kanban)
             </TabsTrigger>
           </TabsList>
         </div>
@@ -128,7 +170,7 @@ export const ContactsPage: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Buscar importações..."
+                    placeholder="Buscar importacoes..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full bg-background border rounded-md py-2 pl-10 pr-4 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -145,31 +187,29 @@ export const ContactsPage: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
-                      <th className="px-6 py-3 font-medium border-b">Nome da Importação</th>
+                      <th className="px-6 py-3 font-medium border-b">Nome da Importacao</th>
                       <th className="px-6 py-3 font-medium border-b">Arquivo</th>
                       <th className="px-6 py-3 font-medium border-b">Data</th>
                       <th className="px-6 py-3 font-medium border-b text-center">Contatos</th>
                       <th className="px-6 py-3 font-medium border-b">Status</th>
-                      <th className="px-6 py-3 font-medium border-b text-right">Ações</th>
+                      <th className="px-6 py-3 font-medium border-b text-right">Acoes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {imports.length === 0 ? (
+                    {filteredImports.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center gap-2">
                             <FileSpreadsheet className="w-12 h-12 text-muted-foreground/50" />
-                            <p className="font-medium">Nenhuma importação encontrada</p>
-                            <p className="text-sm text-muted-foreground">Importe sua lista de contatos para começar.</p>
+                            <p className="font-medium">Nenhuma importacao encontrada</p>
+                            <p className="text-sm text-muted-foreground">Importe sua lista de contatos para comecar.</p>
                           </div>
                         </td>
                       </tr>
                     ) : (
-                      imports
-                        .filter(imp => imp.name.toLowerCase().includes(search.toLowerCase()) || imp.filename.toLowerCase().includes(search.toLowerCase()))
-                        .map((imp) => (
-                        <tr 
-                          key={imp.id} 
+                      filteredImports.map((imp) => (
+                        <tr
+                          key={imp.id}
                           className="hover:bg-accent/50 transition-colors cursor-pointer group"
                           onClick={() => {
                             setSelectedImport(imp);
@@ -199,17 +239,25 @@ export const ContactsPage: React.FC = () => {
                             </Badge>
                           </td>
                           <td className="px-6 py-4">
-                            <Badge 
+                            <Badge
                               variant={
-                                imp.status === 'completed' ? 'default' : 
-                                imp.status === 'processing' ? 'secondary' : 
-                                imp.status === 'failed' ? 'destructive' : 'outline'
+                                imp.status === 'completed'
+                                  ? 'default'
+                                  : imp.status === 'processing'
+                                    ? 'secondary'
+                                    : imp.status === 'failed'
+                                      ? 'destructive'
+                                      : 'outline'
                               }
                               className="text-[10px]"
                             >
-                              {imp.status === 'completed' ? 'Finalizado' : 
-                               imp.status === 'processing' ? 'Processando' : 
-                               imp.status === 'failed' ? 'Falhou' : 'Pendente'}
+                              {imp.status === 'completed'
+                                ? 'Finalizado'
+                                : imp.status === 'processing'
+                                  ? 'Processando'
+                                  : imp.status === 'failed'
+                                    ? 'Falhou'
+                                    : 'Pendente'}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -226,7 +274,7 @@ export const ContactsPage: React.FC = () => {
 
               <div className="p-4 border-t flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Mostrando <span className="font-medium">{imports.length}</span> importações no total
+                  Mostrando <span className="font-medium">{filteredImports.length}</span> importacoes no total
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled>
@@ -242,20 +290,23 @@ export const ContactsPage: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="imports">
-          <ImportKanban imports={imports} onImportClick={(imp) => {
-            setSelectedImport(imp);
-            setIsDetailsModalOpen(true);
-          }} />
+          <ImportKanban
+            imports={imports}
+            onImportClick={(imp) => {
+              setSelectedImport(imp);
+              setIsDetailsModalOpen(true);
+            }}
+          />
         </TabsContent>
       </Tabs>
 
-      <ImportModal 
-        isOpen={isImportModalOpen} 
+      <ImportModal
+        isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImport={handleImport}
       />
 
-      <ImportDetailsModal 
+      <ImportDetailsModal
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         importBatch={selectedImport}
@@ -266,6 +317,63 @@ export const ContactsPage: React.FC = () => {
         onClose={() => setIsExportModalOpen(false)}
         imports={imports}
       />
+
+      <Dialog open={isAddContactModalOpen} onOpenChange={setIsAddContactModalOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Adicionar contato individual
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Nome do contato</Label>
+              <Input
+                placeholder="Ex: Joao Silva"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                disabled={isCreatingContact}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Telefone</Label>
+              <Input
+                placeholder="Ex: 5511999999999"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                disabled={isCreatingContact}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tags (opcional)</Label>
+              <Input
+                placeholder="Ex: Lead quente, VIP"
+                value={contactTags}
+                onChange={(e) => setContactTags(e.target.value)}
+                disabled={isCreatingContact}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddContactModalOpen(false)} disabled={isCreatingContact}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddContact} disabled={isCreatingContact}>
+              {isCreatingContact ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...
+                </>
+              ) : (
+                'Salvar contato'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
