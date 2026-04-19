@@ -1,0 +1,63 @@
+import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster as Sonner } from '@/components/ui/sonner';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { useAuthStore } from './store';
+import { DashboardLayout } from './components/layout/DashboardLayout';
+import { LoginPage } from './pages/LoginPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { ContactsPage } from './pages/ContactsPage';
+import { CampaignsPage } from './pages/CampaignsPage';
+import { GroupsPage } from './pages/GroupsPage';
+import { InboxPage } from './pages/InboxPage';
+import { ConnectorsPage } from './pages/ConnectorsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import ReportsPage from './pages/ReportsPage';
+import { LiveViewPage } from './pages/LiveViewPage';
+
+const queryClient = new QueryClient();
+
+const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return isAuthenticated ? <DashboardLayout>{children}</DashboardLayout> : <Navigate to="/login" />;
+};
+
+const AppBootstrap: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const hydrateMe = useAuthStore((state) => state.hydrateMe);
+
+  React.useEffect(() => {
+    hydrateMe().catch(() => undefined);
+  }, [hydrateMe]);
+
+  return <>{children}</>;
+};
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <AppBootstrap>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+            <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
+            <Route path="/campaigns" element={<PrivateRoute><CampaignsPage /></PrivateRoute>} />
+            <Route path="/groups" element={<PrivateRoute><GroupsPage /></PrivateRoute>} />
+            <Route path="/live-view" element={<PrivateRoute><LiveViewPage /></PrivateRoute>} />
+            <Route path="/messages" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
+            <Route path="/connectors" element={<PrivateRoute><ConnectorsPage /></PrivateRoute>} />
+            <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
+            <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </BrowserRouter>
+      </AppBootstrap>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;

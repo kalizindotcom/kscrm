@@ -1,0 +1,288 @@
+// Prisma schema — KS CSM
+// Reflete os tipos do frontend em src/types/index.ts e src/components/connectors/types.ts
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────── Users / Auth ───────────
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          String    @default("admin") // admin | user
+  avatar        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  campaigns     Campaign[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────── Sessions (Baileys) ───────────
+model Session {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name                  String
+  nickname              String?
+  channel               String    @default("whatsapp") // whatsapp | email | sms | webhook | api_propria
+  phoneNumber           String?
+  status                String    @default("disconnected")
+  environment           String    @default("production") // production | test | sandbox
+
+  responsible           String?
+  description           String?
+  tags                  String[]  @default([])
+  notes                 String?
+  favorite              Boolean   @default(false)
+
+  qrCodeDataUrl         String?
+  healthScore           Int       @default(100)
+  reconnectCount        Int       @default(0)
+  failureCount          Int       @default(0)
+  syncCount             Int       @default(0)
+
+  lastActivity          DateTime?
+  lastConnectedAt       DateTime?
+  lastDisconnectedAt    DateTime?
+  disconnectReason      String?
+
+  // anti-ban counters
+  warmupStartedAt       DateTime?
+  messagesLastMinute    Int       @default(0)
+  messagesLastHour      Int       @default(0)
+  messagesLastDay       Int       @default(0)
+  lastMessageAt         DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  logs                  SessionLog[]
+  conversations         Conversation[]
+  groups                WhatsAppGroup[]
+  campaigns             Campaign[]
+
+  @@index([userId])
+}
+
+model SessionLog {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type        String
+  severity    String   // info | warning | error | success
+  message     String
+  origin      String   // front-end | system | engine
+  user        String?
+  timestamp   DateTime @default(now())
+
+  @@index([sessionId, timestamp])
+}
+
+// ─────────── Contacts ───────────
+model Contact {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String
+  origin          String   @default("manual")
+  status          String   @default("active") // active | inactive | pending
+  optIn           String   @default("unknown") // granted | revoked | unknown
+  tags            String[] @default([])
+  lastInteraction DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  conversations   Conversation[]
+
+  @@unique([phone])
+  @@index([status])
+}
+
+model ContactImport {
+  id             String   @id @default(cuid())
+  name           String
+  filename       String
+  filePath       String?
+  status         String   @default("pending") // pending | processing | completed | failed
+  contactCount   Int      @default(0)
+  processedCount Int      @default(0)
+  errorCount     Int      @default(0)
+  errorLog       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ─────────── Conversations / Messages ───────────
+model Conversation {
+  id            String    @id @default(cuid())
+  sessionId     String
+  session       Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contactId     String?
+  contact       Contact?  @relation(fields: [contactId], references: [id])
+
+  contactName   String
+  phone         String
+  campaignName  String?
+  lastMessage   String    @default("")
+  unreadCount   Int       @default(0)
+  status        String    @default("open") // open | pending | resolved
+  isGroup       Boolean   @default(false)
+  avatar        String?
+
+  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime  @default(now())
+
+  messages      Message[]
+
+  @@unique([sessionId, phone])
+  @@index([sessionId, updatedAt])
+}
+
+model Message {
+  id              String        @id @default(cuid())
+  conversationId  String
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // whatsapp message id (fromMe/remoteJid/id)
+  waMessageId     String?       @unique
+
+  direction       String        // inbound | outbound
+  content         String
+  type            String        @default("text") // text | image | video | audio | document | sticker | buttons | list
+  mediaUrl        String?
+  mediaMime       String?
+  status          String        @default("pending") // pending | sending | sent | delivered | read | failed | replied
+  error           String?
+
+  // outbound button payload (kept for retry/audit)
+  buttonsJson     Json?
+
+  timestamp       DateTime      @default(now())
+
+  @@index([conversationId, timestamp])
+}
+
+// ─────────── Groups ───────────
+model WhatsAppGroup {
+  id           String   @id @default(cuid())
+  sessionId    String
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  waGroupId    String   // WhatsApp JID
+  name         String
+  memberCount  Int      @default(0)
+  messageCount Int      @default(0)
+  description  String?
+  inviteLink   String?
+  photo        String?
+  admins       String[] @default([])
+  members      String[] @default([])
+  status       String   @default("active")
+  isAdmin      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([sessionId, waGroupId])
+}
+
+// ─────────── Templates ───────────
+model MessageTemplate {
+  id         String   @id @default(cuid())
+  title      String
+  category   String   @default("general")
+  channel    String   @default("whatsapp")
+  content    String
+  isFavorite Boolean  @default(false)
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─────────── Campaigns ───────────
+model Campaign {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId      String?
+  session        Session? @relation(fields: [sessionId], references: [id])
+
+  name           String
+  channel        String   @default("whatsapp")
+  status         String   @default("draft") // draft | scheduled | running | completed | paused
+  templateId     String?
+  segmentId      String?
+  messageContent String   @default("")
+  scheduledAt    DateTime?
+
+  sentCount      Int      @default(0)
+  deliveredCount Int      @default(0)
+  failedCount    Int      @default(0)
+  responseCount  Int      @default(0)
+
+  batchLimit     Int?
+  windowStart    String?
+  windowEnd      String?
+  intervalSec    Int      @default(5)
+
+  buttonsEnabled Boolean  @default(false)
+  buttonsJson    Json?
+  mediaUrl       String?
+  mediaType      String?  // image | video | audio | none
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  targets        CampaignTarget[]
+
+  @@index([userId])
+}
+
+model CampaignTarget {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  phone       String
+  name        String?
+  status      String   @default("pending") // pending | sent | delivered | failed
+  error       String?
+  processedAt DateTime?
+
+  @@index([campaignId, status])
+}
+
+// ─────────── Audit ───────────
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  userName  String
+  action    String
+  module    String
+  status    String   // success | failure
+  details   String?
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp])
+}

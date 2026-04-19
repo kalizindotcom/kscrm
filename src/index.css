@@ -1,0 +1,295 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 230 50% 3%;
+    --foreground: 210 40% 98%;
+
+    --card: 230 50% 5%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 230 50% 5%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 200 100% 50%; /* Deep Cyan */
+    --primary-foreground: 230 50% 3%;
+
+    --secondary: 260 90% 65%; /* Vibrant Purple */
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 230 25% 12%;
+    --muted-foreground: 215 15% 70%;
+
+    --accent: 200 100% 50%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 90% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 230 25% 18%;
+    --input: 230 25% 18%;
+    --ring: 200 100% 50%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 230 40% 4%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 200 100% 50%;
+    --sidebar-primary-foreground: 230 50% 3%;
+    --sidebar-accent: 230 25% 12%;
+    --sidebar-accent-foreground: 200 100% 50%;
+    --sidebar-border: 230 25% 18%;
+    --sidebar-ring: 200 100% 50%;
+  }
+
+  .dark {
+    --background: 230 40% 4%;
+    --foreground: 210 40% 98%;
+    --card: 230 40% 6%;
+    --card-foreground: 210 40% 98%;
+    --primary: 200 100% 50%;
+    --secondary: 260 90% 65%;
+    --border: 230 25% 18%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border transition-all duration-300;
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-screen overflow-x-hidden;
+    background: radial-gradient(circle at 50% 50%, hsl(230, 50%, 8%), hsl(230, 50%, 3%));
+    position: relative;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: 
+      radial-gradient(circle at 20% 30%, hsla(190, 100%, 50%, 0.05) 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, hsla(290, 100%, 60%, 0.05) 0%, transparent 40%);
+    animation: bg-rotate 20s linear infinite;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+    text-shadow: 0 0 10px hsla(var(--primary), 0.3);
+  }
+
+  .neon-border {
+    box-shadow: 0 0 15px hsla(var(--primary), 0.2);
+    border: 1px solid hsla(var(--primary), 0.5);
+  }
+
+  .neon-text {
+    text-shadow: 0 0 8px hsla(var(--primary), 0.8), 0 0 20px hsla(var(--primary), 0.4);
+  }
+
+  /* Global Animations */
+  @keyframes bg-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+
+  .animate-shake {
+    animation: shake 0.2s ease-in-out 0s 2;
+  }
+
+  @keyframes energy-pulse {
+    0%, 100% {
+      box-shadow: 
+        0 0 10px hsla(var(--primary), 0.4),
+        0 0 20px hsla(var(--primary), 0.2);
+      opacity: 0.7;
+      transform: scale(1);
+    }
+    50% {
+      box-shadow: 
+        0 0 20px hsla(var(--primary), 0.8),
+        0 0 40px hsla(var(--secondary), 0.5),
+        0 0 60px hsla(var(--primary), 0.3);
+      opacity: 1;
+      transform: scale(1.02);
+    }
+  }
+
+  @keyframes energy-flow {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+
+  @keyframes energy-beam {
+    0% { clip-path: inset(0 100% 98% 0); }
+    25% { clip-path: inset(0 0 0 98%); }
+    50% { clip-path: inset(98% 0 0 0); }
+    75% { clip-path: inset(0 98% 0 0); }
+    100% { clip-path: inset(0 100% 98% 0); }
+  }
+
+  @keyframes river-flow {
+    0% { background-position: 200% 0; }
+    100% { background-position: 0% 0; }
+  }
+
+  .river-progress-indicator {
+    background: linear-gradient(90deg, 
+      var(--river-color-1, hsl(var(--primary))) 0%, 
+      var(--river-color-1, hsl(var(--primary))) 35%, 
+      var(--river-color-3, hsla(0, 0%, 100%, 0.8)) 50%, 
+      var(--river-color-1, hsl(var(--primary))) 65%, 
+      var(--river-color-1, hsl(var(--primary))) 100%
+    );
+    background-size: 200% 100%;
+    animation: river-flow 2.8s linear infinite;
+    box-shadow: 0 0 12px var(--river-color-1, hsla(var(--primary), 0.6));
+    position: relative;
+    z-index: 1;
+  }
+
+  /* River flow animation for sidebar campaign item (purple) */
+  .river-sidebar-active {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(90deg,
+      hsl(var(--secondary) / 0.25) 0%,
+      hsl(var(--secondary) / 0.25) 35%,
+      hsl(280 100% 80% / 0.55) 50%,
+      hsl(var(--secondary) / 0.25) 65%,
+      hsl(var(--secondary) / 0.25) 100%
+    );
+    background-size: 200% 100%;
+    animation: river-flow 7s linear infinite;
+    box-shadow: 
+      0 0 12px hsl(var(--secondary) / 0.5),
+      0 0 24px hsl(var(--secondary) / 0.25),
+      inset 0 0 0 1px hsl(var(--secondary) / 0.6);
+    color: hsl(0 0% 100%) !important;
+  }
+
+  .river-sidebar-active::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      hsl(280 100% 90% / 0.35) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: river-flow 7s linear infinite;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  .animate-energy-glow {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+  }
+
+  .animate-energy-glow::before {
+    content: "";
+    position: absolute;
+    inset: -100%;
+    background: conic-gradient(
+      transparent, 
+      hsla(var(--primary), 0.3), 
+      hsla(var(--secondary), 0.8), 
+      hsla(var(--primary), 0.3), 
+      transparent
+    );
+    animation: rotate 3s linear infinite;
+    z-index: -2;
+  }
+
+  .animate-energy-glow::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    background: hsl(var(--card));
+    z-index: -1;
+    border-radius: inherit;
+  }
+
+  @keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes dash {
+    0% { stroke-dashoffset: 400; }
+    100% { stroke-dashoffset: 0; }
+  }
+
+  /* Micro pulsos nas quinas */
+  .corner-pulse {
+    @apply hidden; /* Obsoleto em favor do novo efeito */
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes qr-beam {
+    0% { top: 0; }
+    50% { top: 100%; }
+    100% { top: 0; }
+  }
+
+  .animate-qr-beam {
+    animation: qr-beam 2s linear infinite;
+  }
+}
+
+@layer utilities {
+  .bg-neon-gradient {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+  }
+  
+  .text-neon-gradient {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsla(var(--primary), 0.2);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsla(var(--primary), 0.4);
+  }
+}
