@@ -23,6 +23,16 @@ function resolveTarget(rawPhone: string) {
   };
 }
 
+function assertValidTargetPhone(phone: string, isGroup: boolean) {
+  if (isGroup) {
+    if (!phone || phone.length < 8) throw new Error('Grupo inválido para envio');
+    return;
+  }
+  if (!phone || phone.length < 8 || phone.length > 15) {
+    throw new Error('Número inválido para envio');
+  }
+}
+
 async function ensureConversation(sessionId: string, phone: string, isGroup = false, contactName?: string) {
   return prisma.conversation.upsert({
     where: { sessionId_phone: { sessionId, phone } },
@@ -37,6 +47,7 @@ export async function sendText(userId: string, sessionId: string, phone: string,
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
   const target = resolveTarget(phone);
+  assertValidTargetPhone(target.phone, target.isGroup);
   const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
 
   const pending = await prisma.message.create({
@@ -98,6 +109,7 @@ export async function sendButtons(
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
   const target = resolveTarget(phone);
+  assertValidTargetPhone(target.phone, target.isGroup);
   const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
 
   const pending = await prisma.message.create({
@@ -152,6 +164,7 @@ export async function sendMedia(
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
 
   const target = resolveTarget(phone);
+  assertValidTargetPhone(target.phone, target.isGroup);
   const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
   const pending = await prisma.message.create({
     data: {

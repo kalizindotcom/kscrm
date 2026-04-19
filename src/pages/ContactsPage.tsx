@@ -123,9 +123,14 @@ export const ContactsPage: React.FC = () => {
     }
   };
 
-  const filteredImports = imports.filter(
-    (imp) => imp.name.toLowerCase().includes(search.toLowerCase()) || imp.filename.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filteredContacts = contacts.filter((contact) => {
+    const query = search.toLowerCase();
+    return (
+      contact.name.toLowerCase().includes(query) ||
+      contact.phone.includes(query) ||
+      contact.tags.some((tag) => tag.toLowerCase().includes(query))
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -170,7 +175,7 @@ export const ContactsPage: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Buscar importacoes..."
+                    placeholder="Buscar contatos..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full bg-background border rounded-md py-2 pl-10 pr-4 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -187,83 +192,62 @@ export const ContactsPage: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
-                      <th className="px-6 py-3 font-medium border-b">Nome da Importacao</th>
-                      <th className="px-6 py-3 font-medium border-b">Arquivo</th>
-                      <th className="px-6 py-3 font-medium border-b">Data</th>
-                      <th className="px-6 py-3 font-medium border-b text-center">Contatos</th>
+                      <th className="px-6 py-3 font-medium border-b">Nome</th>
+                      <th className="px-6 py-3 font-medium border-b">Telefone</th>
+                      <th className="px-6 py-3 font-medium border-b">Origem</th>
+                      <th className="px-6 py-3 font-medium border-b text-center">Tags</th>
                       <th className="px-6 py-3 font-medium border-b">Status</th>
-                      <th className="px-6 py-3 font-medium border-b text-right">Acoes</th>
+                      <th className="px-6 py-3 font-medium border-b">Atualizado em</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredImports.length === 0 ? (
+                    {filteredContacts.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center gap-2">
                             <FileSpreadsheet className="w-12 h-12 text-muted-foreground/50" />
-                            <p className="font-medium">Nenhuma importacao encontrada</p>
-                            <p className="text-sm text-muted-foreground">Importe sua lista de contatos para comecar.</p>
+                            <p className="font-medium">Nenhum contato encontrado</p>
+                            <p className="text-sm text-muted-foreground">Adicione manualmente ou importe uma lista para começar.</p>
                           </div>
                         </td>
                       </tr>
                     ) : (
-                      filteredImports.map((imp) => (
-                        <tr
-                          key={imp.id}
-                          className="hover:bg-accent/50 transition-colors cursor-pointer group"
-                          onClick={() => {
-                            setSelectedImport(imp);
-                            setIsDetailsModalOpen(true);
-                          }}
-                        >
+                      filteredContacts.map((contact) => (
+                        <tr key={contact.id} className="hover:bg-accent/50 transition-colors">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded bg-primary/10 text-primary flex items-center justify-center">
-                                <FileSpreadsheet className="w-4 h-4" />
+                                <Plus className="w-4 h-4" />
                               </div>
-                              <span className="text-sm font-medium">{imp.name}</span>
+                              <span className="text-sm font-medium">{contact.name}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <span className="text-xs text-muted-foreground">{imp.filename}</span>
-                          </td>
-                          <td className="px-6 py-4 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="w-3 h-3" />
-                              {formatDate(imp.createdAt)}
-                            </div>
-                          </td>
+                          <td className="px-6 py-4 font-mono text-xs">{contact.phone}</td>
+                          <td className="px-6 py-4 text-xs uppercase">{contact.origin}</td>
                           <td className="px-6 py-4 text-center">
                             <Badge variant="secondary" className="font-mono text-[10px]">
-                              {imp.contactCount}
+                              {contact.tags.length}
                             </Badge>
                           </td>
                           <td className="px-6 py-4">
                             <Badge
                               variant={
-                                imp.status === 'completed'
+                                contact.status === 'active'
                                   ? 'default'
-                                  : imp.status === 'processing'
+                                  : contact.status === 'pending'
                                     ? 'secondary'
-                                    : imp.status === 'failed'
-                                      ? 'destructive'
-                                      : 'outline'
+                                    : 'outline'
                               }
                               className="text-[10px]"
                             >
-                              {imp.status === 'completed'
-                                ? 'Finalizado'
-                                : imp.status === 'processing'
-                                  ? 'Processando'
-                                  : imp.status === 'failed'
-                                    ? 'Falhou'
-                                    : 'Pendente'}
+                              {contact.status === 'active' ? 'Ativo' : contact.status === 'pending' ? 'Pendente' : 'Inativo'}
                             </Badge>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button className="p-2 rounded-md hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
+                          <td className="px-6 py-4 text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3 h-3" />
+                              {formatDate(contact.updatedAt)}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -274,7 +258,7 @@ export const ContactsPage: React.FC = () => {
 
               <div className="p-4 border-t flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Mostrando <span className="font-medium">{filteredImports.length}</span> importacoes no total
+                  Mostrando <span className="font-medium">{filteredContacts.length}</span> contatos no total
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled>

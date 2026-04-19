@@ -41,6 +41,53 @@ type Instance = {
 
 const instances = new Map<string, Instance>();
 
+function normalizeDigits(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function isPlausiblePhoneDigits(value: string) {
+  const len = value.length;
+  return len >= 8 && len <= 15;
+}
+
+function extractPreferredPhoneFromMessage(m: proto.IWebMessageInfo): { phone: string; isGroup: boolean } | null {
+  const keyAny: any = m.key as any;
+  const remoteJid = m.key.remoteJid ?? '';
+  if (!remoteJid) return null;
+  const remoteDomain = remoteJid.split('@')[1] ?? '';
+
+  if (remoteJid.endsWith('@g.us')) {
+    return { phone: remoteJid.split('@')[0] ?? '', isGroup: true };
+  }
+
+  const candidateJids: (string | undefined)[] = [
+    remoteDomain === 'lid' ? undefined : remoteJid,
+    keyAny?.remoteJidAlt,
+    keyAny?.participantPn,
+    keyAny?.senderPn,
+    keyAny?.participantAlt,
+    keyAny?.participant,
+    (m.message as any)?.extendedTextMessage?.contextInfo?.participant,
+  ];
+
+  for (const candidate of candidateJids) {
+    if (!candidate || typeof candidate !== 'string') continue;
+    const local = candidate.split('@')[0] ?? '';
+    const digits = normalizeDigits(local);
+    if (isPlausiblePhoneDigits(digits)) {
+      return { phone: digits, isGroup: false };
+    }
+  }
+
+  if (remoteDomain === 'lid') {
+    return null;
+  }
+
+  const fallbackLocal = remoteJid.split('@')[0] ?? '';
+  const fallbackDigits = normalizeDigits(fallbackLocal);
+  return { phone: fallbackDigits || fallbackLocal, isGroup: false };
+}
+
 async function writeLog(
   sessionId: string,
   severity: 'info' | 'warning' | 'error' | 'success',
@@ -170,11 +217,10 @@ export async function ensure(sessionId: string): Promise<WASocket> {
     if (type !== 'notify' && type !== 'append') return;
     for (const m of messages) {
       if (!m.message) continue;
-      const remoteJid = m.key.remoteJid;
-      if (!remoteJid) continue;
-      const isGroup = remoteJid.endsWith('@g.us');
-      const rawId = remoteJid.split('@')[0] ?? '';
-      const phone = isGroup ? rawId : rawId.replace(/\D/g, '') || rawId;
+      const identity = extractPreferredPhoneFromMessage(m);
+      if (!identity?.phone) continue;
+      const isGroup = identity.isGroup;
+      const phone = identity.phone;
       const content = extractText(m.message);
       if (!content.trim()) continue;
       const direction = m.key.fromMe ? 'outbound' : 'inbound';
