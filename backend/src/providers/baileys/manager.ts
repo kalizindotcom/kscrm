@@ -228,6 +228,17 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
         const waMessageId = m.key.id ?? undefined;
 
+        // for group messages, get the real group name from DB
+        let groupContactName: string | undefined;
+        if (isGroup) {
+          const groupJid = `${phone}@g.us`;
+          const groupRecord = await prisma.whatsAppGroup.findFirst({
+            where: { sessionId, waGroupId: groupJid },
+            select: { name: true },
+          });
+          groupContactName = groupRecord?.name;
+        }
+
         // for group messages, extract sender phone from participant field
         let senderPhone: string | undefined;
         let senderName: string | undefined;
@@ -246,13 +257,17 @@ export async function ensure(sessionId: string): Promise<WASocket> {
           senderName = m.pushName ?? undefined;
         }
 
+        const resolvedName = isGroup
+          ? (groupContactName ?? phone)
+          : (maybeName ?? phone);
+
         // upsert conversation
         const conv = await prisma.conversation.upsert({
           where: { sessionId_phone: { sessionId, phone } },
           create: {
             sessionId,
             phone,
-            contactName: maybeName ?? (isGroup ? phone : phone),
+            contactName: resolvedName,
             lastMessage: content,
             unreadCount: m.key.fromMe ? 0 : 1,
             isGroup,
@@ -261,7 +276,7 @@ export async function ensure(sessionId: string): Promise<WASocket> {
           update: {
             lastMessage: content,
             unreadCount: m.key.fromMe ? undefined : { increment: 1 },
-            contactName: maybeName ?? undefined,
+            contactName: isGroup ? (groupContactName ?? undefined) : (maybeName ?? undefined),
           },
         });
 
@@ -401,6 +416,11 @@ async function humanizedTyping(sock: WASocket, jid: string) {
   }
 }
 
+async function isAntiBanEnabled(sessionId: string): Promise<boolean> {
+  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { antiBanEnabled: true } as any });
+  return (session as any)?.antiBanEnabled !== false;
+}
+
 export async function sendText(
   sessionId: string,
   phone: string,
@@ -410,16 +430,17 @@ export async function sendText(
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
 
+  const antiBan = await isAntiBanEnabled(sessionId);
   const q = await checkQuota(sessionId);
   assertAllowedOrThrow(q);
-  if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
+  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
   const jid = jidOf(phone, opts.isGroup);
-  await humanizedTyping(sock, jid);
+  if (antiBan) await humanizedTyping(sock, jid);
   const result = await sock.sendMessage(jid, { text });
   await incrementCounters(sessionId);
 
-  if (opts.applyDelay !== false) await sleep(jitterDelay());
+  if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
   return result;
 }
 
@@ -431,12 +452,13 @@ export async function sendMedia(
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
+  const antiBan = await isAntiBanEnabled(sessionId);
   const q = await checkQuota(sessionId);
   assertAllowedOrThrow(q);
-  if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
+  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
   const jid = jidOf(phone, opts.isGroup);
-  await humanizedTyping(sock, jid);
+  if (antiBan) await humanizedTyping(sock, jid);
 
   const payload: any =
     media.type === 'image'
@@ -449,7 +471,7 @@ export async function sendMedia(
 
   const result = await sock.sendMessage(jid, payload);
   await incrementCounters(sessionId);
-  if (opts.applyDelay !== false) await sleep(jitterDelay());
+  if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
   return result;
 }
 
@@ -471,12 +493,13 @@ export async function sendButtons(
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
+  const antiBan = await isAntiBanEnabled(sessionId);
   const q = await checkQuota(sessionId);
   assertAllowedOrThrow(q);
-  if (q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
+  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
   const jid = jidOf(phone, opts.isGroup);
-  await humanizedTyping(sock, jid);
+  if (antiBan) await humanizedTyping(sock, jid);
 
   const buttons = data.buttons.map((b, i) => ({
     buttonId: b.id || `btn_${i}`,
@@ -495,13 +518,13 @@ export async function sendButtons(
   try {
     const result = await sock.sendMessage(jid, payload);
     await incrementCounters(sessionId);
-    if (opts.applyDelay !== false) await sleep(jitterDelay());
+    if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
     return result;
   } catch {
     // fallback estável para clientes que não renderizam/rejeitam buttonsMessage
     const result = await sock.sendMessage(jid, { text: fallbackText });
     await incrementCounters(sessionId);
-    if (opts.applyDelay !== false) await sleep(jitterDelay());
+    if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
     return result;
   }
 }

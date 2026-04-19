@@ -80,4 +80,41 @@ export async function conversationsRoutes(app: FastifyInstance) {
     await prisma.conversation.delete({ where: { id } });
     return reply.send({ ok: true });
   });
+
+  app.get('/api/conversations/:id/export', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { format } = z.object({ format: z.enum(['csv', 'txt']).default('txt') }).parse(req.query);
+    const conv = await prisma.conversation.findUnique({ where: { id }, include: { session: true } });
+    if (!conv || conv.session.userId !== req.user!.sub) throw new NotFoundError();
+    const messages = await prisma.message.findMany({
+      where: { conversationId: id },
+      orderBy: { timestamp: 'asc' },
+      take: 1000,
+    });
+    if (format === 'csv') {
+      const header = 'timestamp,direction,type,content\n';
+      const rows = messages.map((m) =>
+        `"${m.timestamp.toISOString()}","${m.direction}","${m.type}","${(m.content ?? '').replace(/"/g, '""')}"`,
+      ).join('\n');
+      reply.header('Content-Type', 'text/csv');
+      reply.header('Content-Disposition', `attachment; filename="conversa_${conv.contactName}.csv"`);
+      return header + rows;
+    }
+    const lines = messages.map((m) => {
+      const time = m.timestamp.toLocaleString('pt-BR');
+      const who = m.direction === 'outbound' ? 'Eu' : conv.contactName;
+      return `[${time}] ${who}: ${m.content || `[${m.type}]`}`;
+    }).join('\n');
+    reply.header('Content-Type', 'text/plain; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="conversa_${conv.contactName}.txt"`);
+    return lines;
+  });
+
+  app.post('/api/conversations/:id/block', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const conv = await prisma.conversation.findUnique({ where: { id }, include: { session: true } });
+    if (!conv || conv.session.userId !== req.user!.sub) throw new NotFoundError();
+    await prisma.conversation.update({ where: { id }, data: { status: 'resolved' } });
+    return reply.send({ ok: true });
+  });
 }

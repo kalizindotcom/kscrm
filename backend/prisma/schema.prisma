@@ -68,6 +68,9 @@ model Session {
   lastDisconnectedAt    DateTime?
   disconnectReason      String?
 
+  // anti-ban
+  antiBanEnabled        Boolean   @default(true)
+
   // anti-ban counters
   warmupStartedAt       DateTime?
   messagesLastMinute    Int       @default(0)

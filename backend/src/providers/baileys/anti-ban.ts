@@ -44,6 +44,10 @@ export async function checkQuota(sessionId: string): Promise<QuotaCheck> {
   const session = await prisma.session.findUnique({ where: { id: sessionId } });
   if (!session) return { allowed: false, reason: 'session not found' };
 
+  if ((session as any).antiBanEnabled === false) {
+    return { allowed: true, longPause: false };
+  }
+
   const now = Date.now();
   const last = session.lastMessageAt?.getTime() ?? 0;
 

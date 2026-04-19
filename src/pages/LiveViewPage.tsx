@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSessionStore } from '@/store/useSessionStore';
 import { SessionHeader } from '@/components/live-view/SessionHeader';
 import { ChatList } from '@/components/live-view/ChatList';
@@ -9,7 +9,8 @@ import { LiveConversation, LiveMessage } from '@/components/live-view/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { conversationService } from '@/services/conversationService';
 import { apiClient } from '@/services/apiClient';
-import { Loader2, ChevronLeft } from 'lucide-react';
+import { getSocket, subscribe, unsubscribe } from '@/services/wsClient';
+import { Loader2, ChevronLeft, X, Send } from 'lucide-react';
 import { LiveViewModals } from '@/components/live-view/LiveViewModals';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,14 @@ export const LiveViewPage: React.FC = () => {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<LiveConversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
+  const [sessionLogs, setSessionLogs] = useState<any[]>([]);
+  const [showNewConv, setShowNewConv] = useState(false);
+  const [newConvPhone, setNewConvPhone] = useState('');
+  const [newConvMsg, setNewConvMsg] = useState('');
+  const [sendingNewConv, setSendingNewConv] = useState(false);
   const initialLoaded = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,24 +61,25 @@ export const LiveViewPage: React.FC = () => {
     return `+${normalized}`;
   };
 
-  const reloadSelectedMessages = async (chatId: string) => {
+  const reloadSelectedMessages = async (chatId: string, cursor?: string) => {
     try {
-      const msgs = await conversationService.getMessages(chatId, { limit: 50 });
-      const liveMsgs: LiveMessage[] = [...msgs]
+      const msgs = await conversationService.getMessages(chatId, { limit: 50, before: cursor });
+      return [...msgs]
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
         .map((m: any) => ({
           id: m.id,
           content: m.content,
           timestamp: m.timestamp,
           status: m.status as LiveMessage['status'],
-          type: m.type === 'image' || m.type === 'file' ? m.type : 'text',
+          type: m.type as LiveMessage['type'],
           fromMe: m.direction === 'outbound',
           senderName: m.senderName ?? undefined,
           senderPhone: m.senderPhone ?? undefined,
+          mediaUrl: m.mediaUrl ?? undefined,
+          mediaMime: m.mediaMime ?? undefined,
         }));
-      setConversations((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: liveMsgs } : c)));
     } catch {
-      // best-effort
+      return null;
     }
   };
 
@@ -94,7 +104,7 @@ export const LiveViewPage: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (chatId: string, content: string) => {
+  const handleSendMessage = async (chatId: string, content: string, replyToId?: string) => {
     const msgId = Math.random().toString(36).slice(2, 11);
     const newMessage: LiveConversation['messages'][0] = {
       id: msgId,
@@ -123,6 +133,7 @@ export const LiveViewPage: React.FC = () => {
         sessionId: activeSession.id,
         phone,
         content,
+        ...(replyToId ? { quotedMessageId: replyToId } : {}),
       });
 
       setConversations((prev) =>
@@ -131,7 +142,10 @@ export const LiveViewPage: React.FC = () => {
         ),
       );
 
-      await reloadSelectedMessages(chatId);
+      const freshMsgs = await reloadSelectedMessages(chatId);
+      if (freshMsgs) {
+        setConversations((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: freshMsgs } : c)));
+      }
     } catch (error: any) {
       const message = typeof error?.message === 'string' && error.message
         ? error.message.includes('rate/min exceeded')
@@ -158,6 +172,65 @@ export const LiveViewPage: React.FC = () => {
     handleSendMessage(chatId, msg.content);
   };
 
+  const handleLoadMore = async () => {
+    if (!selectedChatId || isLoadingMore) return;
+    const conv = conversations.find((c) => c.id === selectedChatId);
+    if (!conv || !conv.hasMoreMessages) return;
+    const oldest = conv.messages[0];
+    if (!oldest) return;
+    setIsLoadingMore(true);
+    try {
+      const older = await reloadSelectedMessages(selectedChatId, oldest.timestamp);
+      if (older && older.length > 0) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedChatId
+              ? { ...c, messages: [...older, ...c.messages], hasMoreMessages: older.length >= 50 }
+              : c,
+          ),
+        );
+      } else {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === selectedChatId ? { ...c, hasMoreMessages: false } : c)),
+        );
+      }
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleNewConversation = async () => {
+    if (!newConvPhone.trim() || !newConvMsg.trim() || !activeSession?.id) return;
+    setSendingNewConv(true);
+    try {
+      const phone = newConvPhone.replace(/\D/g, '');
+      await apiClient.post('/api/messages/send', {
+        sessionId: activeSession.id,
+        phone,
+        content: newConvMsg,
+      });
+      toast.success('Mensagem enviada! A conversa aparecerá em breve.');
+      setShowNewConv(false);
+      setNewConvPhone('');
+      setNewConvMsg('');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Erro ao iniciar conversa');
+    } finally {
+      setSendingNewConv(false);
+    }
+  };
+
+  const handleShowLogs = async () => {
+    if (!activeSession?.id) return;
+    try {
+      const logs = await apiClient.get(`/api/sessions/${activeSession.id}/logs`);
+      setSessionLogs((logs as any)?.slice(0, 50) ?? []);
+      setShowLogs(true);
+    } catch {
+      toast.error('Erro ao carregar logs');
+    }
+  };
+
   useEffect(() => {
     initialLoaded.current = false;
   }, [activeSession?.id]);
@@ -181,6 +254,15 @@ export const LiveViewPage: React.FC = () => {
           return convs.map((c) => {
             const previous = byId.get(c.id);
             const isGroup = !!c.isGroup;
+
+            // Compute real metrics from existing messages if available
+            const existingMsgs = previous?.messages ?? [];
+            const totalSent = existingMsgs.filter((m) => m.fromMe).length;
+            const totalReceived = existingMsgs.filter((m) => !m.fromMe).length;
+            const responseRate = totalSent + totalReceived > 0
+              ? `${Math.round((totalReceived / (totalSent + totalReceived)) * 100)}%`
+              : '—';
+
             return {
               id: c.id,
               contactName: c.contactName,
@@ -188,25 +270,28 @@ export const LiveViewPage: React.FC = () => {
               rawPhone: c.phone ?? '',
               isGroup,
               avatar: c.avatar,
-              lastMessage: isGroup ? (c.lastMessage || 'Toque para abrir mensagens do grupo') : c.lastMessage,
+              lastMessage: c.lastMessage || (isGroup ? 'Toque para abrir mensagens do grupo' : ''),
               lastMessageTime: c.updatedAt,
+              createdAt: c.createdAt,
               unreadCount: c.unreadCount,
               status: c.status === 'resolved' ? 'archived' : 'active',
               origin: isGroup ? 'api' : 'direct',
               tags: isGroup ? ['grupo'] : [],
               messages: previous?.messages ?? [],
+              hasMoreMessages: previous?.hasMoreMessages,
               metrics: {
-                totalSent: 0,
-                totalReceived: 0,
+                totalSent: previous ? totalSent : 0,
+                totalReceived: previous ? totalReceived : 0,
                 avgResponseTime: '—',
-                responseRate: '—',
+                responseRate: previous ? responseRate : '—',
                 failureCount: 0,
               },
             } as LiveConversation;
           });
         });
+        setLastUpdated(new Date());
       } catch {
-        // mantém estado atual para não sumir tudo em falhas temporárias
+        // keep existing state on transient failures
       } finally {
         if (showLoader) setIsLoading(false);
         initialLoaded.current = true;
@@ -222,7 +307,88 @@ export const LiveViewPage: React.FC = () => {
 
   useEffect(() => {
     if (!selectedChatId) return;
-    reloadSelectedMessages(selectedChatId).catch(() => undefined);
+    reloadSelectedMessages(selectedChatId).then((msgs) => {
+      if (!msgs) return;
+      setConversations((prev) =>
+        prev.map((c) => (c.id === selectedChatId ? { ...c, messages: msgs, hasMoreMessages: msgs.length >= 50 } : c)),
+      );
+    });
+    apiClient.patch(`/api/conversations/${selectedChatId}`, { unreadCount: 0 }).catch(() => undefined);
+    setConversations((prev) => prev.map((c) => (c.id === selectedChatId ? { ...c, unreadCount: 0 } : c)));
+  }, [selectedChatId]);
+
+  // WebSocket
+  useEffect(() => {
+    if (!activeSession?.id) return;
+    const socket = getSocket();
+    subscribe(`session:${activeSession.id}`);
+
+    const handleNewMessage = (event: any) => {
+      const { conversationId, message } = event;
+      if (!conversationId || !message) return;
+
+      const livMsg: LiveMessage = {
+        id: message.id,
+        content: message.content,
+        timestamp: message.timestamp,
+        status: message.status,
+        type: message.type as LiveMessage['type'],
+        fromMe: message.direction === 'outbound',
+        senderName: message.senderName ?? undefined,
+        senderPhone: message.senderPhone ?? undefined,
+        mediaUrl: message.mediaUrl ?? undefined,
+      };
+
+      setConversations((prev) => {
+        const exists = prev.find((c) => c.id === conversationId);
+        if (!exists) return prev;
+        const msgAlreadyExists = exists.messages.some((m) => m.id === message.id);
+        if (msgAlreadyExists) return prev;
+        const isSelected = selectedChatId === conversationId;
+        const lastMsgPreview = exists.isGroup && message.senderName
+          ? `~${message.senderName}: ${message.content}`
+          : message.content;
+
+        return prev.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                messages: [...c.messages, livMsg],
+                lastMessage: lastMsgPreview,
+                lastMessageTime: message.timestamp,
+                unreadCount: message.direction === 'inbound' && !isSelected ? c.unreadCount + 1 : c.unreadCount,
+              }
+            : c,
+        );
+      });
+    };
+
+    const handleStatusUpdate = (event: any) => {
+      const { conversationId, messageId, status } = event;
+      if (!conversationId || !messageId) return;
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId
+            ? { ...c, messages: c.messages.map((m) => (m.id === messageId ? { ...m, status } : m)) }
+            : c,
+        ),
+      );
+    };
+
+    socket.on('message.new', handleNewMessage);
+    socket.on('message.status_update', handleStatusUpdate);
+
+    return () => {
+      socket.off('message.new', handleNewMessage);
+      socket.off('message.status_update', handleStatusUpdate);
+      unsubscribe(`session:${activeSession.id}`);
+    };
+  }, [activeSession?.id, selectedChatId]);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    subscribe(`conversation:${selectedChatId}`);
+    return () => unsubscribe(`conversation:${selectedChatId}`);
   }, [selectedChatId]);
 
   const selectedChat = conversations.find((c) => c.id === selectedChatId) || null;
@@ -244,7 +410,12 @@ export const LiveViewPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] sm:h-[calc(100vh-140px)] gap-4 animate-in fade-in duration-500">
-      <SessionHeader session={activeSession} />
+      <SessionHeader
+        session={activeSession}
+        totalConversations={conversations.length}
+        lastUpdated={lastUpdated}
+        onShowLogs={handleShowLogs}
+      />
 
       <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden min-h-0">
         <div
@@ -253,7 +424,12 @@ export const LiveViewPage: React.FC = () => {
             selectedChatId ? 'hidden md:flex' : 'flex',
           )}
         >
-          <ChatList conversations={conversations} selectedId={selectedChatId} onSelect={setSelectedChatId} />
+          <ChatList
+            conversations={conversations}
+            selectedId={selectedChatId}
+            onSelect={setSelectedChatId}
+            onNewConversation={() => setShowNewConv(true)}
+          />
         </div>
 
         <main
@@ -285,9 +461,11 @@ export const LiveViewPage: React.FC = () => {
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <ChatWindow
                     conversation={selectedChat}
-                    onSendMessage={(content) => handleSendMessage(selectedChat.id, content)}
+                    onSendMessage={(content, replyToId) => handleSendMessage(selectedChat.id, content, replyToId)}
                     onRetryMessage={(msgId) => handleRetryMessage(selectedChat.id, msgId)}
                     onOpenModal={handleOpenModal}
+                    onLoadMore={handleLoadMore}
+                    isLoadingMore={isLoadingMore}
                   />
                 </div>
                 <div className="hidden xl:block w-80 border-l border-primary/10 bg-black/20">
@@ -313,6 +491,117 @@ export const LiveViewPage: React.FC = () => {
       <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
 
       {selectedChat && <LiveViewModals conversation={selectedChat} modals={modals} onClose={handleCloseModal} />}
+
+      {/* New Conversation Modal */}
+      <AnimatePresence>
+        {showNewConv && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={(e) => e.target === e.currentTarget && setShowNewConv(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-primary/20 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-black text-white">Nova Conversa</h3>
+                <button onClick={() => setShowNewConv(false)} className="text-slate-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Número de telefone</label>
+                  <input
+                    type="text"
+                    placeholder="5511999999999 (com DDI)"
+                    value={newConvPhone}
+                    onChange={(e) => setNewConvPhone(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all outline-none font-medium placeholder:text-slate-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Primeira mensagem</label>
+                  <textarea
+                    placeholder="Digite a mensagem inicial..."
+                    value={newConvMsg}
+                    onChange={(e) => setNewConvMsg(e.target.value)}
+                    rows={3}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all outline-none font-medium placeholder:text-slate-600 resize-none"
+                  />
+                </div>
+                <button
+                  onClick={handleNewConversation}
+                  disabled={sendingNewConv || !newConvPhone.trim() || !newConvMsg.trim()}
+                  className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground font-black text-xs py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  {sendingNewConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {sendingNewConv ? 'Enviando...' : 'Iniciar Conversa'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Logs Modal */}
+      <AnimatePresence>
+        {showLogs && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={(e) => e.target === e.currentTarget && setShowLogs(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-primary/20 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-black text-white">Logs da Sessão — {activeSession?.name}</h3>
+                <button onClick={() => setShowLogs(false)} className="text-slate-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
+                {sessionLogs.length === 0 ? (
+                  <p className="text-slate-600 text-sm text-center py-8">Nenhum log disponível.</p>
+                ) : (
+                  sessionLogs.map((log: any) => (
+                    <div key={log.id} className={cn(
+                      "flex gap-3 p-3 rounded-xl border text-xs",
+                      log.severity === 'error' ? "bg-rose-500/10 border-rose-500/20" :
+                      log.severity === 'success' ? "bg-emerald-500/10 border-emerald-500/20" :
+                      "bg-white/5 border-white/10"
+                    )}>
+                      <span className={cn(
+                        "font-black uppercase tracking-widest text-[9px] shrink-0 mt-0.5",
+                        log.severity === 'error' ? "text-rose-500" :
+                        log.severity === 'success' ? "text-emerald-500" :
+                        "text-slate-500"
+                      )}>{log.severity}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-medium">{log.message}</p>
+                        <p className="text-slate-600 text-[10px] mt-0.5">
+                          {log.type} · {new Date(log.timestamp).toLocaleString('pt-BR')}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

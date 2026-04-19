@@ -1,23 +1,19 @@
 import React from 'react';
 import { LiveConversation } from './types';
-import { motion } from 'framer-motion';
-import { 
-  User, 
-  Phone, 
-  Mail, 
-  Calendar, 
-  Tag, 
-  ExternalLink, 
-  BarChart2, 
+import {
+  User,
+  BarChart2,
   TrendingUp,
   MessageCircle,
   Clock,
-  Zap,
-  ShieldAlert
+  ShieldAlert,
+  Download,
+  Hash
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/shared';
-import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface ContactSidebarProps {
   conversation: LiveConversation;
@@ -25,6 +21,19 @@ interface ContactSidebarProps {
 }
 
 export const ContactSidebar: React.FC<ContactSidebarProps> = ({ conversation, onOpenModal }) => {
+  const lastMessages = [...conversation.messages]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 3);
+
+  const createdLabel = conversation.createdAt
+    ? (() => {
+        try {
+          return format(new Date(conversation.createdAt), "d 'de' MMMM, yyyy", { locale: ptBR });
+        } catch {
+          return '—';
+        }
+      })()
+    : '—';
 
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-xl overflow-y-auto custom-scrollbar">
@@ -43,10 +52,10 @@ export const ContactSidebar: React.FC<ContactSidebarProps> = ({ conversation, on
             <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse" />
           </div>
         </div>
-        
+
         <h3 className="text-xl font-black text-white mb-1 tracking-tight">{conversation.contactName}</h3>
         <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">{conversation.phoneNumber}</p>
-        
+
         <div className="flex flex-wrap justify-center gap-1.5 mt-4">
           {conversation.tags.map(tag => (
             <Badge key={tag} className="bg-primary/10 text-primary border-primary/20 px-2 py-1 text-[9px] uppercase font-black">
@@ -68,13 +77,19 @@ export const ContactSidebar: React.FC<ContactSidebarProps> = ({ conversation, on
               <span className="text-white font-black uppercase tracking-tighter bg-white/5 px-2 py-0.5 rounded-md">{conversation.origin}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-bold">ID Interno</span>
-              <span className="text-white font-mono bg-white/5 px-2 py-0.5 rounded-md">#48291</span>
+              <span className="text-slate-500 font-bold flex items-center gap-1"><Hash className="w-3 h-3" /> ID</span>
+              <span className="text-white font-mono bg-white/5 px-2 py-0.5 rounded-md text-[10px]">{conversation.id.slice(-8)}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500 font-bold">Primeira Interação</span>
-              <span className="text-white">12 Out, 2023</span>
+              <span className="text-white">{createdLabel}</span>
             </div>
+            {conversation.isGroup && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-bold">Tipo</span>
+                <span className="text-primary font-black bg-primary/10 px-2 py-0.5 rounded-md uppercase text-[9px]">Grupo</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -104,44 +119,56 @@ export const ContactSidebar: React.FC<ContactSidebarProps> = ({ conversation, on
           </div>
         </section>
 
-        {/* Timeline Summary */}
+        {/* Timeline — last real messages */}
         <section className="space-y-4">
           <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
             <Clock className="w-3 h-3 text-amber-500" /> Últimos Eventos
           </h4>
-          <div className="space-y-4">
-            <div className="flex gap-3 relative">
-              <div className="absolute left-1.5 top-6 bottom-0 w-px bg-white/5" />
-              <div className="w-3 h-3 rounded-full bg-primary/20 border border-primary/50 flex items-center justify-center shrink-0 mt-0.5">
-                <div className="w-1 h-1 bg-primary rounded-full" />
-              </div>
-              <div>
-                <p className="text-xs text-white font-bold">Mensagem entregue</p>
-                <p className="text-[10px] text-slate-500">Há 5 minutos • SaaS Gateway</p>
-              </div>
+          {lastMessages.length === 0 ? (
+            <p className="text-xs text-slate-600">Nenhuma mensagem ainda.</p>
+          ) : (
+            <div className="space-y-4">
+              {lastMessages.map((m, i) => (
+                <div key={m.id} className="flex gap-3 relative">
+                  {i < lastMessages.length - 1 && (
+                    <div className="absolute left-1.5 top-6 bottom-0 w-px bg-white/5" />
+                  )}
+                  <div className={`w-3 h-3 rounded-full flex items-center justify-center shrink-0 mt-0.5 border ${m.fromMe ? 'bg-primary/20 border-primary/50' : 'bg-emerald-500/20 border-emerald-500/50'}`}>
+                    <div className={`w-1 h-1 rounded-full ${m.fromMe ? 'bg-primary' : 'bg-emerald-500'}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-white font-bold truncate max-w-[160px]">
+                      {m.content || `[${m.type}]`}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {m.fromMe ? 'Enviado' : 'Recebido'} · {(() => {
+                        try { return format(new Date(m.timestamp), "HH:mm 'de' dd/MM", { locale: ptBR }); } catch { return '—'; }
+                      })()}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex gap-3">
-              <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 mt-0.5">
-                <div className="w-1 h-1 bg-emerald-500 rounded-full" />
-              </div>
-              <div>
-                <p className="text-xs text-white font-bold">Resposta recebida</p>
-                <p className="text-[10px] text-slate-500">Há 12 minutos</p>
-              </div>
-            </div>
-          </div>
+          )}
         </section>
 
         {/* Actions */}
         <div className="pt-4 flex flex-col gap-2">
-          <button 
+          <button
+            onClick={() => onOpenModal?.('download')}
+            className="w-full bg-white/5 border border-white/10 hover:bg-primary/20 hover:border-primary/50 text-white font-bold text-xs py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 group relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+            <Download className="w-4 h-4 group-hover:scale-110 transition-transform" /> Exportar Conversa
+          </button>
+          <button
             onClick={() => onOpenModal?.('history')}
             className="w-full bg-white/5 border border-white/10 hover:bg-primary/20 hover:border-primary/50 text-white font-bold text-xs py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 group relative overflow-hidden"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
             <MessageCircle className="w-4 h-4 group-hover:scale-110 transition-transform" /> Ver Histórico Completo
           </button>
-          <button 
+          <button
             onClick={() => onOpenModal?.('block')}
             className="w-full bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/30 text-rose-500 font-bold text-xs py-3 rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2 group"
           >

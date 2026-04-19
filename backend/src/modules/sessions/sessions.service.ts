@@ -104,6 +104,7 @@ export async function update(userId: string, id: string, data: any) {
       favorite: data.favorite,
       environment: data.environment,
       responsible: data.responsible,
+      ...(data.antiBanEnabled !== undefined ? { antiBanEnabled: data.antiBanEnabled } as any : {}),
     },
   });
   return get(userId, id);

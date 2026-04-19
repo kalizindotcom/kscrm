@@ -89,6 +89,7 @@ export interface Conversation {
   isGroup?: boolean;
   avatar?: string;
   updatedAt: string;
+  createdAt: string;
 }
 
 export interface Message {
@@ -96,9 +97,14 @@ export interface Message {
   conversationId: string;
   direction: 'inbound' | 'outbound';
   content: string;
-  type: 'text' | 'image' | 'file';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'buttons' | 'list';
+  mediaUrl?: string;
+  mediaMime?: string;
   timestamp: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
+  status: 'sent' | 'delivered' | 'read' | 'failed' | 'sending' | 'pending';
+  senderName?: string;
+  senderPhone?: string;
+  error?: string;
 }
 
 export interface Integration {

@@ -7,10 +7,13 @@ export interface LiveMessage {
   content: string;
   timestamp: string;
   status: MessageStatus;
-  type: 'text' | 'image' | 'video' | 'audio' | 'file';
+  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'document' | 'sticker' | 'buttons';
   fromMe: boolean;
   senderName?: string;
   senderPhone?: string;
+  mediaUrl?: string;
+  mediaMime?: string;
+  replyTo?: { id: string; content: string; fromMe: boolean };
   error?: string;
 }
 
@@ -23,11 +26,13 @@ export interface LiveConversation {
   avatar?: string;
   lastMessage?: string;
   lastMessageTime?: string;
+  createdAt?: string;
   unreadCount: number;
   status: 'active' | 'archived' | 'error';
   origin: 'campaign' | 'direct' | 'api';
   tags: string[];
   messages: LiveMessage[];
+  hasMoreMessages?: boolean;
   metrics: {
     totalSent: number;
     totalReceived: number;
