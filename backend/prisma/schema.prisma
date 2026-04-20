@@ -187,6 +187,9 @@ model Message {
   senderPhone     String?
   senderName      String?
 
+  replyToContent  String?
+  replyToFromMe   Boolean?
+
   timestamp       DateTime      @default(now())
 
   @@index([conversationId, timestamp])

@@ -15,10 +15,12 @@ import { LiveViewModals } from '@/components/live-view/LiveViewModals';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { playMessageSound } from '@/lib/notificationSound';
 
 export const LiveViewPage: React.FC = () => {
   const { sessions, selectedSessionId } = useSessionStore();
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const selectedChatIdRef = useRef<string | null>(null);
   const [conversations, setConversations] = useState<LiveConversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -41,6 +43,9 @@ export const LiveViewPage: React.FC = () => {
     attachment: false,
     campaign: false,
   });
+
+  // Keep ref in sync so WebSocket handlers always see current value without stale closure
+  useEffect(() => { selectedChatIdRef.current = selectedChatId; }, [selectedChatId]);
 
   const activeSession =
     sessions.find((s) => s.status === 'connected') || sessions.find((s) => s.id === selectedSessionId) || null;
@@ -77,6 +82,9 @@ export const LiveViewPage: React.FC = () => {
           senderPhone: m.senderPhone ?? undefined,
           mediaUrl: m.mediaUrl ?? undefined,
           mediaMime: m.mediaMime ?? undefined,
+          replyTo: m.replyToContent
+            ? { id: '', content: m.replyToContent, fromMe: m.replyToFromMe ?? false }
+            : undefined,
         }));
     } catch {
       return null;
@@ -84,10 +92,6 @@ export const LiveViewPage: React.FC = () => {
   };
 
   const handleOpenModal = (modal: keyof typeof modals) => {
-    if (modal === 'attachment') {
-      fileInputRef.current?.click();
-      return;
-    }
     setModals((prev) => ({ ...prev, [modal]: true }));
   };
 
@@ -337,6 +341,9 @@ export const LiveViewPage: React.FC = () => {
         senderName: message.senderName ?? undefined,
         senderPhone: message.senderPhone ?? undefined,
         mediaUrl: message.mediaUrl ?? undefined,
+        replyTo: message.replyToContent
+          ? { id: '', content: message.replyToContent, fromMe: message.replyToFromMe ?? false }
+          : undefined,
       };
 
       setConversations((prev) => {
@@ -344,10 +351,15 @@ export const LiveViewPage: React.FC = () => {
         if (!exists) return prev;
         const msgAlreadyExists = exists.messages.some((m) => m.id === message.id);
         if (msgAlreadyExists) return prev;
-        const isSelected = selectedChatId === conversationId;
+        const isSelected = selectedChatIdRef.current === conversationId;
         const lastMsgPreview = exists.isGroup && message.senderName
           ? `~${message.senderName}: ${message.content}`
           : message.content;
+
+        // play notification sound for inbound messages not currently open
+        if (message.direction === 'inbound' && !isSelected) {
+          playMessageSound();
+        }
 
         return prev.map((c) =>
           c.id === conversationId
@@ -375,15 +387,32 @@ export const LiveViewPage: React.FC = () => {
       );
     };
 
+    // On reconnect: re-subscribe and reload to recover any missed messages
+    const handleReconnect = () => {
+      subscribe(`session:${activeSession.id}`);
+      if (selectedChatIdRef.current) {
+        subscribe(`conversation:${selectedChatIdRef.current}`);
+        reloadSelectedMessages(selectedChatIdRef.current).then((msgs) => {
+          if (!msgs) return;
+          const chatId = selectedChatIdRef.current!;
+          setConversations((prev) =>
+            prev.map((c) => (c.id === chatId ? { ...c, messages: msgs } : c)),
+          );
+        });
+      }
+    };
+
     socket.on('message.new', handleNewMessage);
     socket.on('message.status_update', handleStatusUpdate);
+    socket.on('reconnect', handleReconnect);
 
     return () => {
       socket.off('message.new', handleNewMessage);
       socket.off('message.status_update', handleStatusUpdate);
+      socket.off('reconnect', handleReconnect);
       unsubscribe(`session:${activeSession.id}`);
     };
-  }, [activeSession?.id, selectedChatId]);
+  }, [activeSession?.id]);
 
   useEffect(() => {
     if (!selectedChatId) return;
@@ -391,7 +420,26 @@ export const LiveViewPage: React.FC = () => {
     return () => unsubscribe(`conversation:${selectedChatId}`);
   }, [selectedChatId]);
 
+  // Tab title badge for unread messages
+  useEffect(() => {
+    const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0);
+    document.title = totalUnread > 0 ? `(${totalUnread}) Live-View — Ks Leads` : 'Live-View — Ks Leads';
+    return () => { document.title = 'Ks Leads'; };
+  }, [conversations]);
+
   const selectedChat = conversations.find((c) => c.id === selectedChatId) || null;
+
+  // After media is sent via modal, reload messages for the selected chat
+  const handleMediaSent = () => {
+    if (selectedChatId) {
+      reloadSelectedMessages(selectedChatId).then((msgs) => {
+        if (!msgs) return;
+        setConversations((prev) =>
+          prev.map((c) => (c.id === selectedChatId ? { ...c, messages: msgs } : c)),
+        );
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -461,6 +509,7 @@ export const LiveViewPage: React.FC = () => {
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <ChatWindow
                     conversation={selectedChat}
+                    activeSessionId={activeSession.id}
                     onSendMessage={(content, replyToId) => handleSendMessage(selectedChat.id, content, replyToId)}
                     onRetryMessage={(msgId) => handleRetryMessage(selectedChat.id, msgId)}
                     onOpenModal={handleOpenModal}
@@ -490,7 +539,15 @@ export const LiveViewPage: React.FC = () => {
 
       <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
 
-      {selectedChat && <LiveViewModals conversation={selectedChat} modals={modals} onClose={handleCloseModal} />}
+      {selectedChat && (
+        <LiveViewModals
+          conversation={selectedChat}
+          activeSessionId={activeSession.id}
+          modals={modals}
+          onClose={handleCloseModal}
+          onMediaSent={handleMediaSent}
+        />
+      )}
 
       {/* New Conversation Modal */}
       <AnimatePresence>

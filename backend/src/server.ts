@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import staticPlugin from '@fastify/static';
 import { ZodError } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -40,6 +41,12 @@ await app.register(multipart, {
   limits: {
     fileSize: env.UPLOAD_MAX_MB * 1024 * 1024,
   },
+});
+
+await app.register(staticPlugin, {
+  root: path.resolve(env.UPLOAD_DIR),
+  prefix: '/uploads/',
+  decorateReply: false,
 });
 
 app.get('/health', async () => {

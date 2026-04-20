@@ -41,7 +41,7 @@ async function ensureConversation(sessionId: string, phone: string, isGroup = fa
   });
 }
 
-export async function sendText(userId: string, sessionId: string, phone: string, content: string) {
+export async function sendText(userId: string, sessionId: string, phone: string, content: string, quotedMessageId?: string) {
   const session = await prisma.session.findFirst({ where: { id: sessionId, userId } });
   if (!session) throw new NotFoundError('Sessão não encontrada');
   if (session.status !== 'connected') throw new Error('Sessão não conectada');
@@ -50,6 +50,15 @@ export async function sendText(userId: string, sessionId: string, phone: string,
   assertValidTargetPhone(target.phone, target.isGroup);
   const conv = await ensureConversation(sessionId, target.phone, target.isGroup);
 
+  // Resolve quoted message for reply-to
+  let quotedWaMessageId: string | undefined;
+  let quotedContent: string | undefined;
+  if (quotedMessageId) {
+    const quoted = await prisma.message.findUnique({ where: { id: quotedMessageId }, select: { waMessageId: true, content: true } });
+    quotedWaMessageId = quoted?.waMessageId ?? undefined;
+    quotedContent = quoted?.content ?? undefined;
+  }
+
   const pending = await prisma.message.create({
     data: {
       conversationId: conv.id,
@@ -57,13 +66,14 @@ export async function sendText(userId: string, sessionId: string, phone: string,
       content,
       type: 'text',
       status: 'sending',
+      ...(quotedContent ? { replyToContent: quotedContent, replyToFromMe: false } as any : {}),
     },
   });
 
   emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: pending });
 
   try {
-    const result = await baileys.sendText(sessionId, target.phone, content, { isGroup: target.isGroup });
+    const result = await baileys.sendText(sessionId, target.phone, content, { isGroup: target.isGroup, quotedWaMessageId, quotedContent });
     const updated = await prisma.message.update({
       where: { id: pending.id },
       data: {

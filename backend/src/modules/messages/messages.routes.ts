@@ -7,6 +7,7 @@ const sendTextSchema = z.object({
   sessionId: z.string(),
   phone: z.string().min(8),
   content: z.string().min(1),
+  quotedMessageId: z.string().optional(), // internal DB message id to reply to
 });
 
 const buttonSchema = z.object({
@@ -29,7 +30,7 @@ export async function messagesRoutes(app: FastifyInstance) {
 
   app.post('/api/messages/send', async (req) => {
     const b = sendTextSchema.parse(req.body);
-    return service.sendText(req.user!.sub, b.sessionId, b.phone, b.content);
+    return service.sendText(req.user!.sub, b.sessionId, b.phone, b.content, b.quotedMessageId);
   });
 
   app.post('/api/messages/send-buttons', async (req) => {

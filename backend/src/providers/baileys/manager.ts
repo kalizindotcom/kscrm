@@ -12,6 +12,7 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket,
   type proto,
   Browsers,
@@ -225,6 +226,25 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         const content = extractText(m.message);
         if (!content.trim()) continue;
         const direction = m.key.fromMe ? 'outbound' : 'inbound';
+
+        // extract quoted/reply info
+        const contextInfo =
+          m.message?.extendedTextMessage?.contextInfo ??
+          m.message?.imageMessage?.contextInfo ??
+          m.message?.videoMessage?.contextInfo ??
+          m.message?.audioMessage?.contextInfo ??
+          m.message?.documentMessage?.contextInfo ??
+          null;
+
+        let replyToContent: string | undefined;
+        let replyToFromMe: boolean | undefined;
+        if (contextInfo?.quotedMessage) {
+          replyToContent = extractText(contextInfo.quotedMessage) || '[mídia]';
+          // stanzaId participant - if null, the quoted message was from us
+          const quotedParticipant = contextInfo.participant ?? '';
+          const ownJid = sock.user?.id ?? '';
+          replyToFromMe = ownJid ? quotedParticipant === ownJid || quotedParticipant === '' : false;
+        }
         const maybeName = !isGroup && !m.key.fromMe ? m.pushName : undefined;
         const waMessageId = m.key.id ?? undefined;
 
@@ -296,8 +316,33 @@ export async function ensure(sessionId: string): Promise<WASocket> {
             timestamp: m.messageTimestamp ? new Date(Number(m.messageTimestamp) * 1000) : undefined,
             ...(senderPhone ? { senderPhone } : {}),
             ...(senderName ? { senderName } : {}),
+            ...(replyToContent ? { replyToContent, replyToFromMe: replyToFromMe ?? false } : {}),
           } as any,
         });
+
+        // Download and persist media if applicable
+        const mediaType = detectType(m.message);
+        if (mediaType !== 'text' && mediaType !== 'buttons' && mediaType !== 'list') {
+          try {
+            const sock = instances.get(sessionId)?.sock;
+            if (sock) {
+              const buffer = await (downloadMediaMessage as any)(m, 'buffer', {});
+              if (buffer && Buffer.isBuffer(buffer)) {
+                const ext = getMediaExtension(mediaType, m.message);
+                const mediaDir = path.resolve(env.UPLOAD_DIR, 'media');
+                await fs.mkdir(mediaDir, { recursive: true });
+                const fileName = `${saved.id}.${ext}`;
+                const filePath = path.resolve(mediaDir, fileName);
+                await fs.writeFile(filePath, buffer);
+                const mediaUrl = `/uploads/media/${fileName}`;
+                await prisma.message.update({ where: { id: saved.id }, data: { mediaUrl } });
+                (saved as any).mediaUrl = mediaUrl;
+              }
+            }
+          } catch (mediaErr) {
+            logger.warn({ mediaErr, sessionId }, 'failed to download media');
+          }
+        }
 
         emitTo(`conversation:${conv.id}`, { type: 'message.new', conversationId: conv.id, message: saved });
         emitTo(`session:${sessionId}`, { type: 'message.new', conversationId: conv.id, message: saved });
@@ -330,6 +375,28 @@ export async function ensure(sessionId: string): Promise<WASocket> {
   });
 
   return sock;
+}
+
+function getMediaExtension(type: string, msg: proto.IMessage): string {
+  const mime =
+    msg.imageMessage?.mimetype ??
+    msg.videoMessage?.mimetype ??
+    msg.audioMessage?.mimetype ??
+    msg.documentMessage?.mimetype ??
+    msg.stickerMessage?.mimetype ??
+    '';
+  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('gif')) return 'gif';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('mp4')) return 'mp4';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3';
+  if (mime.includes('pdf')) return 'pdf';
+  if (type === 'image') return 'jpg';
+  if (type === 'video') return 'mp4';
+  if (type === 'audio') return 'ogg';
+  return 'bin';
 }
 
 function extractText(msg: proto.IMessage): string {
@@ -425,7 +492,7 @@ export async function sendText(
   sessionId: string,
   phone: string,
   text: string,
-  opts: { applyDelay?: boolean; isGroup?: boolean } = {},
+  opts: { applyDelay?: boolean; isGroup?: boolean; quotedWaMessageId?: string; quotedContent?: string } = {},
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
@@ -437,7 +504,17 @@ export async function sendText(
 
   const jid = jidOf(phone, opts.isGroup);
   if (antiBan) await humanizedTyping(sock, jid);
-  const result = await sock.sendMessage(jid, { text });
+
+  // Build quoted context for reply-to
+  const sendOpts: any = {};
+  if (opts.quotedWaMessageId) {
+    sendOpts.quoted = {
+      key: { id: opts.quotedWaMessageId, remoteJid: jid, fromMe: false },
+      message: { conversation: opts.quotedContent ?? '' },
+    };
+  }
+
+  const result = await sock.sendMessage(jid, { text }, sendOpts);
   await incrementCounters(sessionId);
 
   if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
