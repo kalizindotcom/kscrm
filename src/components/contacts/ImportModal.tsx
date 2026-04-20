@@ -7,7 +7,7 @@ import { cn } from '../../lib/utils';
 interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (files: File[], name: string) => Promise<void> | void;
+  onImport: (files: File[], name: string, tags: string) => Promise<void> | void;
 }
 
 export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport }) => {
@@ -78,7 +78,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImp
     setIsImporting(true);
     setError(null);
     try {
-      await onImport(files, importName || files[0].name);
+      await onImport(files, importName || files[0].name, tags);
       onClose();
       setFiles([]);
       setImportName('');

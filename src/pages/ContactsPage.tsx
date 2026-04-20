@@ -5,7 +5,6 @@ import {
   Filter,
   Download,
   Upload,
-  MoreHorizontal,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +13,7 @@ import {
   FileSpreadsheet,
   Loader2,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
@@ -21,6 +21,16 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { contactService } from '../services/contactService';
@@ -31,8 +41,18 @@ import { ImportKanban } from '../components/contacts/ImportKanban';
 import { ImportDetailsModal } from '../components/contacts/ImportDetailsModal';
 import { ExportModal } from '../components/contacts/ExportModal';
 
+const PAGE_SIZE = 50;
+
+const formatOrigin = (origin: string): string => {
+  if (origin === 'manual') return 'Manual';
+  if (origin.startsWith('import:')) return 'Importado';
+  return origin;
+};
+
 export const ContactsPage: React.FC = () => {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -50,11 +70,32 @@ export const ContactsPage: React.FC = () => {
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [isDeletingContacts, setIsDeletingContacts] = useState(false);
 
+  // Edit modal state
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // AlertDialog confirmation state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const askConfirm = (title: string, description: string, onConfirm: () => void) => {
+    setConfirmDialog({ open: true, title, description, onConfirm });
+  };
+
+  // Initial load
   useEffect(() => {
-    loadContacts();
+    loadContacts(1, '');
     loadImports();
   }, []);
 
+  // Auto-poll for pending imports
   useEffect(() => {
     const hasPending = imports.some((item) => item.status === 'pending' || item.status === 'processing');
     if (!hasPending) return;
@@ -62,11 +103,26 @@ export const ContactsPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [imports]);
 
-  const loadContacts = async () => {
+  // Debounced search — resets to page 1
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      loadContacts(1, search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Page changes
+  useEffect(() => {
+    loadContacts(page, search);
+  }, [page]);
+
+  const loadContacts = async (p = 1, q = '') => {
     setLoading(true);
     try {
-      const data = await contactService.list();
-      setContacts(data);
+      const result = await contactService.list({ search: q || undefined, page: p, pageSize: PAGE_SIZE });
+      setContacts(result.items);
+      setTotal(result.total);
     } catch (error) {
       console.error('Failed to load contacts', error);
     } finally {
@@ -83,13 +139,12 @@ export const ContactsPage: React.FC = () => {
     }
   };
 
-  const handleImport = async (files: File[], name: string) => {
+  const handleImport = async (files: File[], name: string, tags: string) => {
     const file = files[0];
     if (!file) return;
-
-    await contactService.importList(file, name);
-    await Promise.all([loadImports(), loadContacts()]);
-    toast.success('Importacao concluida com contatos reais do arquivo.');
+    await contactService.importList(file, name, tags);
+    await Promise.all([loadImports(), loadContacts(1, search)]);
+    toast.success('Importação concluída com sucesso.');
   };
 
   const handleAddContact = async () => {
@@ -114,6 +169,7 @@ export const ContactsPage: React.FC = () => {
       });
 
       setContacts((prev) => [created, ...prev]);
+      setTotal((prev) => prev + 1);
       setIsAddContactModalOpen(false);
       setContactName('');
       setContactPhone('');
@@ -126,17 +182,42 @@ export const ContactsPage: React.FC = () => {
     }
   };
 
-  const filteredContacts = contacts.filter((contact) => {
-    const query = search.toLowerCase();
-    return (
-      contact.name.toLowerCase().includes(query) ||
-      contact.phone.includes(query) ||
-      contact.tags.some((tag) => tag.toLowerCase().includes(query))
-    );
-  });
+  const openEditModal = (contact: Contact) => {
+    setEditingContact(contact);
+    setEditName(contact.name);
+    setEditPhone(contact.phone);
+    setEditTags(contact.tags.join(', '));
+  };
 
-  const allFilteredSelected =
-    filteredContacts.length > 0 && filteredContacts.every((contact) => selectedContactIds.includes(contact.id));
+  const handleSaveEdit = async () => {
+    if (!editingContact) return;
+    const normalizedPhone = editPhone.replace(/\D/g, '');
+    if (!editName.trim() || normalizedPhone.length < 8) {
+      toast.error('Informe nome e telefone válido.');
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      const updated = await contactService.update(editingContact.id, {
+        name: editName.trim(),
+        phone: normalizedPhone,
+        tags: editTags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      setEditingContact(null);
+      toast.success('Contato atualizado com sucesso.');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Falha ao atualizar contato.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const allSelected =
+    contacts.length > 0 && contacts.every((contact) => selectedContactIds.includes(contact.id));
 
   const toggleContactSelection = (contactId: string) => {
     setSelectedContactIds((prev) =>
@@ -144,32 +225,32 @@ export const ContactsPage: React.FC = () => {
     );
   };
 
-  const toggleSelectAllFiltered = () => {
-    if (allFilteredSelected) {
-      const filteredIds = new Set(filteredContacts.map((contact) => contact.id));
-      setSelectedContactIds((prev) => prev.filter((id) => !filteredIds.has(id)));
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      const pageIds = new Set(contacts.map((c) => c.id));
+      setSelectedContactIds((prev) => prev.filter((id) => !pageIds.has(id)));
       return;
     }
-
     const merged = new Set(selectedContactIds);
-    filteredContacts.forEach((contact) => merged.add(contact.id));
+    contacts.forEach((c) => merged.add(c.id));
     setSelectedContactIds(Array.from(merged));
   };
 
   const handleDeleteContact = async (contactId: string) => {
-    if (!confirm('Tem certeza que deseja excluir este contato?')) return;
-
-    setIsDeletingContacts(true);
-    try {
-      await contactService.delete(contactId);
-      setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
-      setSelectedContactIds((prev) => prev.filter((id) => id !== contactId));
-      toast.success('Contato excluído com sucesso.');
-    } catch (error: any) {
-      toast.error(error?.message ?? 'Não foi possível excluir o contato.');
-    } finally {
-      setIsDeletingContacts(false);
-    }
+    askConfirm('Excluir contato', 'Tem certeza que deseja excluir este contato?', async () => {
+      setIsDeletingContacts(true);
+      try {
+        await contactService.delete(contactId);
+        setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+        setSelectedContactIds((prev) => prev.filter((id) => id !== contactId));
+        setTotal((prev) => prev - 1);
+        toast.success('Contato excluído com sucesso.');
+      } catch (error: any) {
+        toast.error(error?.message ?? 'Não foi possível excluir o contato.');
+      } finally {
+        setIsDeletingContacts(false);
+      }
+    });
   };
 
   const handleDeleteSelectedContacts = async () => {
@@ -177,20 +258,25 @@ export const ContactsPage: React.FC = () => {
       toast.error('Selecione pelo menos um contato.');
       return;
     }
-    if (!confirm(`Deseja excluir ${selectedContactIds.length} contato(s) selecionado(s)?`)) return;
-
-    setIsDeletingContacts(true);
-    try {
-      await Promise.all(selectedContactIds.map((id) => contactService.delete(id)));
-      const selectedSet = new Set(selectedContactIds);
-      setContacts((prev) => prev.filter((contact) => !selectedSet.has(contact.id)));
-      setSelectedContactIds([]);
-      toast.success('Contatos selecionados excluídos com sucesso.');
-    } catch (error: any) {
-      toast.error(error?.message ?? 'Falha ao excluir contatos selecionados.');
-    } finally {
-      setIsDeletingContacts(false);
-    }
+    askConfirm(
+      'Excluir selecionados',
+      `Deseja excluir ${selectedContactIds.length} contato(s) selecionado(s)?`,
+      async () => {
+        setIsDeletingContacts(true);
+        try {
+          await contactService.bulkDelete(selectedContactIds);
+          const selectedSet = new Set(selectedContactIds);
+          setContacts((prev) => prev.filter((contact) => !selectedSet.has(contact.id)));
+          setTotal((prev) => prev - selectedContactIds.length);
+          setSelectedContactIds([]);
+          toast.success('Contatos selecionados excluídos com sucesso.');
+        } catch (error: any) {
+          toast.error(error?.message ?? 'Falha ao excluir contatos selecionados.');
+        } finally {
+          setIsDeletingContacts(false);
+        }
+      },
+    );
   };
 
   const handleDeleteAllContacts = async () => {
@@ -198,19 +284,24 @@ export const ContactsPage: React.FC = () => {
       toast.error('Não há contatos para excluir.');
       return;
     }
-    if (!confirm(`Deseja excluir TODOS os ${contacts.length} contatos da lista?`)) return;
-
-    setIsDeletingContacts(true);
-    try {
-      await Promise.all(contacts.map((contact) => contactService.delete(contact.id)));
-      setContacts([]);
-      setSelectedContactIds([]);
-      toast.success('Todos os contatos foram excluídos.');
-    } catch (error: any) {
-      toast.error(error?.message ?? 'Falha ao excluir todos os contatos.');
-    } finally {
-      setIsDeletingContacts(false);
-    }
+    askConfirm(
+      'Excluir todos os contatos',
+      `Deseja excluir TODOS os ${total} contatos da lista? Esta ação não pode ser desfeita.`,
+      async () => {
+        setIsDeletingContacts(true);
+        try {
+          await contactService.bulkDelete(contacts.map((c) => c.id));
+          setContacts([]);
+          setTotal(0);
+          setSelectedContactIds([]);
+          toast.success('Todos os contatos foram excluídos.');
+        } catch (error: any) {
+          toast.error(error?.message ?? 'Falha ao excluir todos os contatos.');
+        } finally {
+          setIsDeletingContacts(false);
+        }
+      },
+    );
   };
 
   return (
@@ -220,7 +311,7 @@ export const ContactsPage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight">Contatos</h1>
           <p className="text-muted-foreground">Gerencie sua base de leads e clientes.</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {loading ? 'Sincronizando contatos...' : `${contacts.length} contatos ativos carregados`}
+            {loading ? 'Sincronizando contatos...' : `${total} contatos ativos carregados`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -294,34 +385,45 @@ export const ContactsPage: React.FC = () => {
                       <th className="px-4 py-3 font-medium border-b w-[44px]">
                         <input
                           type="checkbox"
-                          checked={allFilteredSelected}
-                          onChange={toggleSelectAllFiltered}
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
                           className="w-4 h-4 accent-primary"
-                          aria-label="Selecionar todos os contatos filtrados"
+                          aria-label="Selecionar todos os contatos da página"
                         />
                       </th>
                       <th className="px-6 py-3 font-medium border-b">Nome</th>
                       <th className="px-6 py-3 font-medium border-b">Telefone</th>
                       <th className="px-6 py-3 font-medium border-b">Origem</th>
-                      <th className="px-6 py-3 font-medium border-b text-center">Tags</th>
+                      <th className="px-6 py-3 font-medium border-b">Tags</th>
                       <th className="px-6 py-3 font-medium border-b">Status</th>
                       <th className="px-6 py-3 font-medium border-b">Atualizado em</th>
                       <th className="px-6 py-3 font-medium border-b text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredContacts.length === 0 ? (
+                    {loading ? (
+                      <tr>
+                        <td colSpan={8} className="px-6 py-12 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                            <p className="text-sm text-muted-foreground">Carregando contatos...</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : contacts.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center gap-2">
                             <FileSpreadsheet className="w-12 h-12 text-muted-foreground/50" />
                             <p className="font-medium">Nenhum contato encontrado</p>
-                            <p className="text-sm text-muted-foreground">Adicione manualmente ou importe uma lista para começar.</p>
+                            <p className="text-sm text-muted-foreground">
+                              Adicione manualmente ou importe uma lista para começar.
+                            </p>
                           </div>
                         </td>
                       </tr>
                     ) : (
-                      filteredContacts.map((contact) => (
+                      contacts.map((contact) => (
                         <tr key={contact.id} className="hover:bg-accent/50 transition-colors">
                           <td className="px-4 py-4">
                             <input
@@ -334,18 +436,31 @@ export const ContactsPage: React.FC = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded bg-primary/10 text-primary flex items-center justify-center">
-                                <Plus className="w-4 h-4" />
+                              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
+                                {contact.name.charAt(0).toUpperCase()}
                               </div>
                               <span className="text-sm font-medium">{contact.name}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4 font-mono text-xs">{contact.phone}</td>
-                          <td className="px-6 py-4 text-xs uppercase">{contact.origin}</td>
-                          <td className="px-6 py-4 text-center">
-                            <Badge variant="secondary" className="font-mono text-[10px]">
-                              {contact.tags.length}
-                            </Badge>
+                          <td className="px-6 py-4 text-xs">{formatOrigin(contact.origin)}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1 max-w-[180px]">
+                              {contact.tags.length === 0 ? (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              ) : (
+                                contact.tags.slice(0, 3).map((tag) => (
+                                  <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">
+                                    {tag}
+                                  </Badge>
+                                ))
+                              )}
+                              {contact.tags.length > 3 && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                  +{contact.tags.length - 3}
+                                </Badge>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <Badge
@@ -358,7 +473,11 @@ export const ContactsPage: React.FC = () => {
                               }
                               className="text-[10px]"
                             >
-                              {contact.status === 'active' ? 'Ativo' : contact.status === 'pending' ? 'Pendente' : 'Inativo'}
+                              {contact.status === 'active'
+                                ? 'Ativo'
+                                : contact.status === 'pending'
+                                  ? 'Pendente'
+                                  : 'Inativo'}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-xs">
@@ -368,15 +487,26 @@ export const ContactsPage: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDeleteContact(contact.id)}
-                              disabled={isDeletingContacts}
-                            >
-                              <Trash2 className="w-4 h-4 mr-1" /> Excluir
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={() => openEditModal(contact)}
+                                disabled={isDeletingContacts}
+                              >
+                                <Pencil className="w-4 h-4 mr-1" /> Editar
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteContact(contact.id)}
+                                disabled={isDeletingContacts}
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" /> Excluir
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -387,13 +517,24 @@ export const ContactsPage: React.FC = () => {
 
               <div className="p-4 border-t flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Mostrando <span className="font-medium">{filteredContacts.length}</span> contatos no total
+                  Mostrando <span className="font-medium">{contacts.length}</span> de{' '}
+                  <span className="font-medium">{total}</span> contatos (página {page})
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p - 1)}
+                    disabled={page <= 1}
+                  >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
-                  <Button variant="outline" size="sm" disabled>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={page * PAGE_SIZE >= total}
+                  >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
                 </div>
@@ -413,25 +554,29 @@ export const ContactsPage: React.FC = () => {
         </TabsContent>
       </Tabs>
 
+      {/* Import Modal */}
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImport={handleImport}
       />
 
+      {/* Import Details Modal */}
       <ImportDetailsModal
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         importBatch={selectedImport}
-        onContactsChanged={loadContacts}
+        onContactsChanged={() => loadContacts(page, search)}
       />
 
+      {/* Export Modal */}
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         imports={imports}
       />
 
+      {/* Add Contact Modal */}
       <Dialog open={isAddContactModalOpen} onOpenChange={setIsAddContactModalOpen}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
@@ -488,6 +633,90 @@ export const ContactsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Contact Modal */}
+      <Dialog open={!!editingContact} onOpenChange={(open) => !open && setEditingContact(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4" /> Editar contato
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Nome do contato</Label>
+              <Input
+                placeholder="Ex: Joao Silva"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                disabled={isSavingEdit}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Telefone</Label>
+              <Input
+                placeholder="Ex: 5511999999999"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                disabled={isSavingEdit}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tags (separadas por vírgula)</Label>
+              <Input
+                placeholder="Ex: Lead quente, VIP"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                disabled={isSavingEdit}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingContact(null)} disabled={isSavingEdit}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={isSavingEdit}>
+              {isSavingEdit ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...
+                </>
+              ) : (
+                'Salvar alterações'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation AlertDialog */}
+      {confirmDialog && (
+        <AlertDialog
+          open={confirmDialog.open}
+          onOpenChange={(open) => !open && setConfirmDialog(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+              <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setConfirmDialog(null)}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  setConfirmDialog(null);
+                }}
+              >
+                Confirmar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Trash2, CheckCircle2, Loader2, Phone, Filter } from 'lucide-react';
+import { Search, Trash2, CheckCircle2, Loader2, Phone } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -20,7 +20,12 @@ interface ValidationResult {
   phoneError: boolean;
 }
 
-export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, onClose, importBatch, onContactsChanged }) => {
+export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({
+  isOpen,
+  onClose,
+  importBatch,
+  onContactsChanged,
+}) => {
   const [search, setSearch] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isValidating, setIsValidating] = useState(false);
@@ -68,16 +73,26 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
     };
   };
 
-  const removeInvalids = () => {
-    const validOnes = contacts.filter((contact) => validateContact(contact).isValid);
-    setContacts(validOnes);
+  const removeInvalids = async () => {
+    const invalids = contacts.filter((contact) => !validateContact(contact).isValid);
+    if (invalids.length === 0) return;
+    setIsValidating(true);
+    try {
+      await Promise.all(invalids.map((c) => contactService.delete(c.id)));
+      setContacts((prev) => prev.filter((contact) => validateContact(contact).isValid));
+      onContactsChanged?.();
+      toast.success(`${invalids.length} contato(s) inválido(s) removido(s).`);
+    } catch {
+      toast.error('Erro ao remover contatos inválidos.');
+    } finally {
+      setIsValidating(false);
+    }
   };
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(
       (contact) =>
-        contact.name.toLowerCase().includes(search.toLowerCase()) ||
-        contact.phone.includes(search),
+        contact.name.toLowerCase().includes(search.toLowerCase()) || contact.phone.includes(search),
     );
   }, [contacts, search]);
 
@@ -110,7 +125,9 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
             <div>
               <DialogTitle className="text-xl flex items-center gap-2">
                 {importBatch?.name || 'Detalhes da Importacao'}
-                <Badge variant="outline" className="font-normal">{importBatch?.filename}</Badge>
+                <Badge variant="outline" className="font-normal">
+                  {importBatch?.filename}
+                </Badge>
               </DialogTitle>
               <p className="text-sm text-muted-foreground mt-1">
                 {contacts.length} contatos reais carregados desta importacao.
@@ -120,9 +137,13 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
               {!validated ? (
                 <Button size="sm" onClick={handleValidate} disabled={isValidating || loading || contacts.length === 0}>
                   {isValidating ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Validando...</>
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Validando...
+                    </>
                   ) : (
-                    <><CheckCircle2 className="w-4 h-4 mr-2" /> Validar Contatos</>
+                    <>
+                      <CheckCircle2 className="w-4 h-4 mr-2" /> Validar Contatos
+                    </>
                   )}
                 </Button>
               ) : (
@@ -134,8 +155,21 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
                     )}
                   </div>
                   {invalidCount > 0 && (
-                    <Button variant="destructive" size="sm" onClick={removeInvalids}>
-                      <Trash2 className="w-4 h-4 mr-2" /> Remover Invalidos
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={removeInvalids}
+                      disabled={isValidating}
+                    >
+                      {isValidating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Removendo...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4 mr-2" /> Remover Invalidos
+                        </>
+                      )}
                     </Button>
                   )}
                 </div>
@@ -155,9 +189,6 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button variant="outline" size="sm">
-            <Filter className="w-4 h-4 mr-2" /> Filtros
-          </Button>
         </div>
 
         <div className="flex-1 overflow-auto min-h-[400px]">
@@ -191,7 +222,9 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
                   </tr>
                 ) : (
                   filteredContacts.map((contact) => {
-                    const validation = validated ? validateContact(contact) : { isValid: true, phoneError: false };
+                    const validation = validated
+                      ? validateContact(contact)
+                      : { isValid: true, phoneError: false };
                     return (
                       <tr key={contact.id} className="hover:bg-accent/30 transition-colors group">
                         <td className="px-6 py-3 text-sm font-medium truncate">{contact.name}</td>
@@ -199,7 +232,9 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
                           <div
                             className={cn(
                               'flex items-center gap-1.5',
-                              validated && validation.phoneError ? 'text-destructive font-medium' : 'text-muted-foreground',
+                              validated && validation.phoneError
+                                ? 'text-destructive font-medium'
+                                : 'text-muted-foreground',
                             )}
                           >
                             <Phone className="w-3 h-3 shrink-0" />
@@ -210,7 +245,10 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
                           {validated && (
                             <Badge
                               variant={validation.isValid ? 'outline' : 'destructive'}
-                              className={cn('text-[9px] uppercase tracking-tight', validation.isValid ? 'border-emerald-500 text-emerald-500' : '')}
+                              className={cn(
+                                'text-[9px] uppercase tracking-tight',
+                                validation.isValid ? 'border-emerald-500 text-emerald-500' : '',
+                              )}
                             >
                               {validation.isValid ? 'Valido' : 'Invalido'}
                             </Badge>
@@ -249,9 +287,6 @@ export const ImportDetailsModal: React.FC<ImportDetailsModalProps> = ({ isOpen, 
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={onClose}>
                 Fechar
-              </Button>
-              <Button size="sm" disabled>
-                Salvar Alteracoes
               </Button>
             </div>
           </div>

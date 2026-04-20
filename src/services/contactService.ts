@@ -18,14 +18,17 @@ export const contactService = {
     status?: 'active' | 'inactive' | 'pending';
     page?: number;
     pageSize?: number;
-  }): Promise<Contact[]> => {
-    const payload = await apiClient.get<PaginatedContacts>('/api/contacts', { query: params });
-    return payload.items;
+  }): Promise<PaginatedContacts> => {
+    return apiClient.get<PaginatedContacts>('/api/contacts', { query: params });
   },
 
   get: async (id: string): Promise<Contact | undefined> => {
-    const items = await contactService.list({ pageSize: 200 });
-    return items.find((contact) => contact.id === id);
+    const result = await contactService.list({ pageSize: 200 });
+    return result.items.find((contact) => contact.id === id);
+  },
+
+  getById: async (id: string): Promise<Contact> => {
+    return apiClient.get<Contact>(`/api/contacts/${id}`);
   },
 
   create: async (data: Partial<Contact>): Promise<Contact> => {
@@ -47,10 +50,33 @@ export const contactService = {
     await apiClient.delete(`/api/contacts/${id}`);
   },
 
-  importList: async (file: File, name: string): Promise<ContactImport> => {
+  bulkDelete: async (ids: string[]): Promise<void> => {
+    await apiClient.post('/api/contacts/bulk-delete', { ids });
+  },
+
+  exportContacts: (format: 'csv' | 'json', importIds?: string[]): void => {
+    const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3000';
+    const token = localStorage.getItem('ks_token');
+    const params = new URLSearchParams({ format });
+    if (importIds && importIds.length > 0) params.set('importIds', importIds.join(','));
+    fetch(`${API_URL}/api/contacts/export?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(async (res) => {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contacts.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  },
+
+  importList: async (file: File, name: string, tags?: string): Promise<ContactImport> => {
     const form = new FormData();
     form.append('file', file);
     form.append('name', name);
+    if (tags) form.append('tags', tags);
     return apiClient.post<ContactImport>('/api/contacts/import', form);
   },
 

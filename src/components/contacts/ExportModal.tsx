@@ -1,26 +1,26 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Download, 
-  FileSpreadsheet, 
-  CheckCircle2, 
+import {
+  Download,
   FileText,
+  FileJson,
   Search,
   CheckSquare,
-  Square
+  Square,
 } from 'lucide-react';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogDescription,
-  DialogFooter
+  DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { ContactImport } from '../../types';
 import { cn, formatDate } from '../../lib/utils';
 import { Badge } from '../ui/badge';
+import { contactService } from '../../services/contactService';
+import { toast } from 'sonner';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -28,49 +28,46 @@ interface ExportModalProps {
   imports: ContactImport[];
 }
 
-export const ExportModal: React.FC<ExportModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  imports 
+export const ExportModal: React.FC<ExportModalProps> = ({
+  isOpen,
+  onClose,
+  imports,
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
-  const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx'>('csv');
+  const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv');
   const [isExporting, setIsExporting] = useState(false);
 
-  const filteredImports = imports.filter(imp => 
-    imp.name.toLowerCase().includes(search.toLowerCase()) || 
-    imp.filename.toLowerCase().includes(search.toLowerCase())
+  const filteredImports = imports.filter(
+    (imp) =>
+      imp.name.toLowerCase().includes(search.toLowerCase()) ||
+      imp.filename.toLowerCase().includes(search.toLowerCase()),
   );
 
   const toggleSelect = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) 
-        ? prev.filter(i => i !== id) 
-        : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
   const toggleSelectAll = () => {
     if (selectedIds.length === filteredImports.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(filteredImports.map(imp => imp.id));
+      setSelectedIds(filteredImports.map((imp) => imp.id));
     }
   };
 
   const handleExport = () => {
     if (selectedIds.length === 0) return;
-    
     setIsExporting(true);
-    
-    // Simulating export process
-    setTimeout(() => {
-      setIsExporting(false);
+    try {
+      contactService.exportContacts(exportFormat, selectedIds);
+      toast.success(`Exportação iniciada — ${selectedIds.length} importação(ões)`);
       onClose();
-      // In a real app, this would trigger a download
-      alert(`Exportando ${selectedIds.length} importação(ões) no formato ${exportFormat.toUpperCase()}`);
-    }, 1500);
+    } catch {
+      toast.error('Erro ao exportar contatos');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -99,7 +96,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between">
-            <button 
+            <button
               onClick={toggleSelectAll}
               className="text-xs text-primary font-medium hover:underline flex items-center gap-1.5"
             >
@@ -109,9 +106,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 <>Selecionar todos</>
               )}
             </button>
-            <span className="text-xs text-muted-foreground">
-              {selectedIds.length} selecionado(s)
-            </span>
+            <span className="text-xs text-muted-foreground">{selectedIds.length} selecionado(s)</span>
           </div>
 
           <div className="flex-1 overflow-y-auto border rounded-md divide-y max-h-[300px]">
@@ -120,13 +115,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 Nenhuma importação encontrada.
               </div>
             ) : (
-              filteredImports.map(imp => (
-                <div 
+              filteredImports.map((imp) => (
+                <div
                   key={imp.id}
                   onClick={() => toggleSelect(imp.id)}
                   className={cn(
-                    "p-3 flex items-center gap-3 cursor-pointer hover:bg-accent/50 transition-colors",
-                    selectedIds.includes(imp.id) && "bg-accent"
+                    'p-3 flex items-center gap-3 cursor-pointer hover:bg-accent/50 transition-colors',
+                    selectedIds.includes(imp.id) && 'bg-accent',
                   )}
                 >
                   {selectedIds.includes(imp.id) ? (
@@ -134,7 +129,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   ) : (
                     <Square className="w-5 h-5 text-muted-foreground" />
                   )}
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium truncate">{imp.name}</p>
@@ -157,16 +152,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <button
                 onClick={() => setExportFormat('csv')}
                 className={cn(
-                  "flex items-center gap-3 p-3 border rounded-md transition-all text-left",
-                  exportFormat === 'csv' 
-                    ? "border-primary bg-primary/5 ring-1 ring-primary" 
-                    : "hover:border-primary/50"
+                  'flex items-center gap-3 p-3 border rounded-md transition-all text-left',
+                  exportFormat === 'csv'
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'hover:border-primary/50',
                 )}
               >
-                <div className={cn(
-                  "w-10 h-10 rounded-full flex items-center justify-center",
-                  exportFormat === 'csv' ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
-                )}>
+                <div
+                  className={cn(
+                    'w-10 h-10 rounded-full flex items-center justify-center',
+                    exportFormat === 'csv' ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground',
+                  )}
+                >
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
@@ -176,23 +173,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </button>
 
               <button
-                onClick={() => setExportFormat('xlsx')}
+                onClick={() => setExportFormat('json')}
                 className={cn(
-                  "flex items-center gap-3 p-3 border rounded-md transition-all text-left",
-                  exportFormat === 'xlsx' 
-                    ? "border-primary bg-primary/5 ring-1 ring-primary" 
-                    : "hover:border-primary/50"
+                  'flex items-center gap-3 p-3 border rounded-md transition-all text-left',
+                  exportFormat === 'json'
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : 'hover:border-primary/50',
                 )}
               >
-                <div className={cn(
-                  "w-10 h-10 rounded-full flex items-center justify-center",
-                  exportFormat === 'xlsx' ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
-                )}>
-                  <FileSpreadsheet className="w-5 h-5" />
+                <div
+                  className={cn(
+                    'w-10 h-10 rounded-full flex items-center justify-center',
+                    exportFormat === 'json' ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  <FileJson className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium">Excel</p>
-                  <p className="text-[10px] text-muted-foreground">Microsoft Excel Open XML</p>
+                  <p className="text-sm font-medium">JSON</p>
+                  <p className="text-[10px] text-muted-foreground">JavaScript Object Notation</p>
                 </div>
               </button>
             </div>
@@ -203,8 +202,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <Button variant="outline" onClick={onClose} disabled={isExporting}>
             Cancelar
           </Button>
-          <Button 
-            onClick={handleExport} 
+          <Button
+            onClick={handleExport}
             disabled={selectedIds.length === 0 || isExporting}
             className="min-w-[120px]"
           >

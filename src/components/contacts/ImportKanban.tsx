@@ -1,15 +1,14 @@
 import React from 'react';
-import { 
-  FileSpreadsheet, 
-  FileText, 
-  MoreVertical, 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle, 
+import {
+  FileSpreadsheet,
+  FileText,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
   Loader2,
-  Calendar
+  Calendar,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { ContactImport } from '../../types';
 import { cn, formatDate } from '../../lib/utils';
@@ -18,6 +17,13 @@ interface ImportKanbanProps {
   imports: ContactImport[];
   onImportClick: (imp: ContactImport) => void;
 }
+
+const statusLabel: Record<string, string> = {
+  pending: 'Pendente',
+  processing: 'Processando',
+  completed: 'Concluído',
+  failed: 'Falhou',
+};
 
 export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportClick }) => {
   const columns = [
@@ -28,30 +34,29 @@ export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportCli
   ];
 
   const getImportsByStatus = (status: string) => {
-    return imports.filter(imp => imp.status === status);
+    return imports.filter((imp) => imp.status === status);
   };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 overflow-x-auto pb-4">
       {columns.map((column) => (
         <div key={column.id} className="min-w-[280px] space-y-4">
-          <div className="flex items-center justify-between px-2">
+          <div className="flex items-center px-2">
             <div className="flex items-center gap-2">
-              <column.icon className={column.color + (column.id === 'processing' ? ' animate-spin' : '') + " w-4 h-4"} />
+              <column.icon
+                className={column.color + (column.id === 'processing' ? ' animate-spin' : '') + ' w-4 h-4'}
+              />
               <h3 className="font-semibold text-sm">{column.label}</h3>
               <Badge variant="outline" className="ml-1 text-[10px] h-5 px-1.5">
                 {getImportsByStatus(column.id).length}
               </Badge>
             </div>
-            <button className="text-muted-foreground hover:text-foreground">
-              <MoreVertical className="w-4 h-4" />
-            </button>
           </div>
 
           <div className="space-y-3 p-2 bg-muted/30 rounded-lg min-h-[500px]">
             {getImportsByStatus(column.id).map((imp) => (
-              <Card 
-                key={imp.id} 
+              <Card
+                key={imp.id}
                 className="cursor-pointer hover:shadow-md transition-shadow"
                 onClick={() => onImportClick(imp)}
               >
@@ -65,21 +70,28 @@ export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportCli
                       )}
                       <p className="font-medium text-xs truncate max-w-[120px]">{imp.name}</p>
                     </div>
-                    <Badge variant={imp.status === 'failed' ? 'destructive' : imp.status === 'completed' ? 'secondary' : 'outline'} className="text-[9px] px-1.5 py-0">
-                      {imp.status}
+                    <Badge
+                      variant={
+                        imp.status === 'failed' ? 'destructive' : imp.status === 'completed' ? 'secondary' : 'outline'
+                      }
+                      className="text-[9px] px-1.5 py-0"
+                    >
+                      {statusLabel[imp.status] ?? imp.status}
                     </Badge>
                   </div>
 
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-[10px] text-muted-foreground">
                       <span>Progresso</span>
-                      <span>{imp.processedCount} / {imp.contactCount}</span>
+                      <span>
+                        {imp.processedCount} / {imp.contactCount}
+                      </span>
                     </div>
                     <div className="w-full bg-primary/10 rounded-full h-1 overflow-hidden">
-                      <div 
+                      <div
                         className={cn(
-                          "bg-primary h-full transition-all duration-500",
-                          imp.status === 'processing' && "animate-kamehameha"
+                          'bg-primary h-full transition-all duration-500',
+                          imp.status === 'processing' && 'animate-kamehameha',
                         )}
                         style={{ width: `${(imp.processedCount / imp.contactCount) * 100}%` }}
                       />
@@ -100,7 +112,7 @@ export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportCli
                 </CardContent>
               </Card>
             ))}
-            
+
             {getImportsByStatus(column.id).length === 0 && (
               <div className="h-20 flex items-center justify-center text-[10px] text-muted-foreground border-2 border-dashed border-muted rounded-lg m-1">
                 Sem itens
