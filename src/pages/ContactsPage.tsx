@@ -550,6 +550,16 @@ export const ContactsPage: React.FC = () => {
               setSelectedImport(imp);
               setIsDetailsModalOpen(true);
             }}
+            onDeleteImport={async (importId) => {
+              try {
+                await contactService.deleteImport(importId);
+                setImports((prev) => prev.filter((i) => i.id !== importId));
+                await loadContacts(1, search);
+                toast.success('Importação excluída com sucesso.');
+              } catch (err: any) {
+                toast.error(err?.message ?? 'Erro ao excluir importação.');
+              }
+            }}
           />
         </TabsContent>
       </Tabs>

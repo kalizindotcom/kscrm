@@ -98,4 +98,8 @@ export const contactService = {
     const details = await contactService.getImportDetails(importId);
     return details.contacts ?? [];
   },
+
+  deleteImport: async (importId: string): Promise<void> => {
+    await apiClient.delete(`/api/contacts/imports/${importId}`);
+  },
 };

@@ -13,8 +13,9 @@ import {
   CheckCircle2,
   Globe,
   Zap,
-  ShieldAlert
+  ShieldAlert,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
 import {
   Dialog,
@@ -22,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter
+  DialogFooter,
 } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { cn, formatDate } from '../lib/utils';
@@ -43,6 +44,7 @@ export const GroupsPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingGroup, setIsSyncingGroup] = useState(false);
   const [isSaveAgendaModalOpen, setIsSaveAgendaModalOpen] = useState(false);
   const [agendaName, setAgendaName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -65,7 +67,7 @@ export const GroupsPage: React.FC = () => {
     }
   };
 
-  const loadSessionAndGroups = async (showLoader: boolean) => {
+  const loadSessionAndGroups = async (showLoader: boolean = false) => {
     if (showLoader) setIsLoadingSession(true);
     let sessionList = sessions;
     try {
@@ -106,38 +108,30 @@ export const GroupsPage: React.FC = () => {
   const handleGlobalSync = async () => {
     const sessionId = activeSessionId;
     if (!sessionId) {
-      alert('Nenhuma sessão conectada encontrada. Conecte uma sessão primeiro.');
+      toast.error('Nenhuma sessão conectada. Conecte uma sessão primeiro.');
       return;
     }
     setIsSyncing(true);
     try {
       const synced = await groupsService.sync(sessionId);
       setGroups(synced);
-      alert('Grupos sincronizados com sucesso!');
+      toast.success('Grupos sincronizados com sucesso!');
     } catch {
-      alert('Falha ao sincronizar grupos.');
+      toast.error('Falha ao sincronizar grupos.');
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const filteredGroups = groups.filter(g =>
-    g.name.toLowerCase().includes(search.toLowerCase()) ||
-    (g.description?.toLowerCase().includes(search.toLowerCase()) ?? false)
+  const filteredGroups = groups.filter(
+    (g) =>
+      g.name.toLowerCase().includes(search.toLowerCase()) ||
+      (g.description?.toLowerCase().includes(search.toLowerCase()) ?? false),
   );
 
   const handleSync = (group: WhatsAppGroup) => {
     setSelectedGroup(group);
     setIsModalOpen(true);
-  };
-
-  const extractDigitsFromJid = (jid: string) => {
-    const domain = jid.split('@')[1] ?? '';
-    if (domain === 'lid' || domain === 'g.us') return '';
-    const localPart = jid.split('@')[0] ?? '';
-    const digits = localPart.replace(/\D/g, '');
-    if (digits.length < 8 || digits.length > 15) return '';
-    return digits;
   };
 
   const formatBrazilPhone = (digits: string) => {
@@ -156,24 +150,32 @@ export const GroupsPage: React.FC = () => {
     return normalized;
   };
 
-  const formatMemberPhone = (jid: string) => {
-    const digits = extractDigitsFromJid(jid);
+  const formatMemberPhone = (jid: string): string => {
+    const domain = jid.split('@')[1] ?? '';
+    if (domain === 'lid' || domain === 'g.us') return '';
+    const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 15) return '';
     return formatBrazilPhone(digits);
   };
 
   const getMemberData = (group: WhatsAppGroup) => {
-    const allMembers = [...new Set([...group.admins, ...group.members])];
-    return allMembers.map((member) => {
-      const digits = extractDigitsFromJid(member);
-      const formattedPhone = formatBrazilPhone(digits);
-      return {
-        name: formattedPhone || member,
-        cleanPhone: digits,
-        displayPhone: formattedPhone || member,
-        isAdmin: group.admins.includes(member),
-        joinDate: new Date().toLocaleDateString('pt-BR')
-      };
-    });
+    const allJids = [...new Set([...group.admins, ...group.members])];
+    return allJids
+      .map((jid) => {
+        const domain = jid.split('@')[1] ?? '';
+        if (domain === 'lid' || domain === 'g.us') return null;
+        const local = jid.split('@')[0] ?? '';
+        const digits = local.replace(/\D/g, '');
+        if (digits.length < 8 || digits.length > 15) return null;
+        const formattedPhone = formatBrazilPhone(digits);
+        return {
+          jid,
+          cleanPhone: digits,
+          displayPhone: formattedPhone,
+          isAdmin: group.admins.includes(jid),
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null);
   };
 
   const handleExport = async (type: 'csv' | 'excel') => {
@@ -189,31 +191,50 @@ export const GroupsPage: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `contatos_${selectedGroup.name.replace(/\s+/g, '_').toLowerCase()}.${format}`);
+      link.setAttribute(
+        'download',
+        `contatos_${selectedGroup.name.replace(/\s+/g, '_').toLowerCase()}.${format}`,
+      );
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      alert('Exportação concluída!');
+      toast.success('Exportação iniciada! O download começará em instantes.');
     } catch {
-      alert('Falha ao exportar contatos.');
+      toast.error('Falha ao exportar contatos.');
+    }
+  };
+
+  const handleSyncGroup = async () => {
+    if (!selectedGroup) return;
+    setIsSyncingGroup(true);
+    try {
+      const updated = await groupsService.syncMembers(selectedGroup.id);
+      setSelectedGroup(updated);
+      setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+      toast.success('Membros sincronizados com sucesso!');
+    } catch {
+      toast.error('Falha ao sincronizar membros do grupo.');
+    } finally {
+      setIsSyncingGroup(false);
     }
   };
 
   const handleSaveToAgenda = async () => {
-    if (!agendaName.trim()) {
-      alert('Por favor, informe um nome para a lista de contatos.');
-      return;
-    }
     if (!selectedGroup) return;
     setIsSaving(true);
     try {
-      await groupsService.saveToContacts(selectedGroup.id);
+      await groupsService.saveToContacts(
+        selectedGroup.id,
+        agendaName.trim() || `Grupo: ${selectedGroup.name}`,
+      );
       setIsSaveAgendaModalOpen(false);
       setAgendaName('');
-      alert(`Lista "${agendaName}" criada com sucesso! ${selectedGroup.memberCount} contatos foram importados para sua agenda.`);
+      toast.success(
+        `Lista "${agendaName || selectedGroup.name}" criada! Contatos importados para sua agenda.`,
+      );
     } catch {
-      alert('Falha ao salvar contatos para agenda.');
+      toast.error('Falha ao salvar contatos para agenda.');
     } finally {
       setIsSaving(false);
     }
@@ -251,7 +272,8 @@ export const GroupsPage: React.FC = () => {
               Grupos Indisponiveis
             </h2>
             <p className="text-slate-400 text-lg mb-10 max-w-md mx-auto leading-relaxed">
-              Para listar grupos reais, voce precisa de uma <span className="text-primary font-bold">sessao ativa e conectada</span>.
+              Para listar grupos reais, voce precisa de uma{' '}
+              <span className="text-primary font-bold">sessao ativa e conectada</span>.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10 text-left">
@@ -270,7 +292,9 @@ export const GroupsPage: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white mb-1">Sincronizacao</h4>
-                  <p className="text-xs text-slate-500">Aguardando uma conexao ativa para carregar os grupos.</p>
+                  <p className="text-xs text-slate-500">
+                    Aguardando uma conexao ativa para carregar os grupos.
+                  </p>
                 </div>
               </div>
             </div>
@@ -285,7 +309,7 @@ export const GroupsPage: React.FC = () => {
               <Button
                 variant="outline"
                 className="w-full sm:w-auto px-8 py-6 rounded-2xl border-white/10 bg-white/5 text-white font-bold text-lg hover:bg-white/10 hover:border-white/20 transition-all flex items-center gap-3"
-                onClick={() => loadSessionAndGroups().catch(() => undefined)}
+                onClick={() => loadSessionAndGroups(true).catch(() => undefined)}
               >
                 <RefreshCw className="w-5 h-5" />
                 VERIFICAR NOVAMENTE
@@ -301,15 +325,19 @@ export const GroupsPage: React.FC = () => {
     <div className="space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-neon-gradient">Grupos de WhatsApp</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground">Gerencie seus grupos e comunidades do WhatsApp.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-neon-gradient">
+            Grupos de WhatsApp
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Gerencie seus grupos e comunidades do WhatsApp.
+          </p>
         </div>
-        <Button 
+        <Button
           onClick={handleGlobalSync}
           disabled={isSyncing}
           className="w-full sm:w-auto bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 neon-border min-w-[140px]"
         >
-          <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
+          <RefreshCw className={cn('w-4 h-4 mr-2', isSyncing && 'animate-spin')} />
           {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
         </Button>
       </div>
@@ -326,7 +354,11 @@ export const GroupsPage: React.FC = () => {
           />
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <Button variant="outline" size="sm" className="flex-1 md:flex-none border-primary/20 hover:bg-primary/10">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 md:flex-none border-primary/20 hover:bg-primary/10"
+          >
             <Filter className="w-4 h-4 mr-2" /> Filtros
           </Button>
         </div>
@@ -335,25 +367,29 @@ export const GroupsPage: React.FC = () => {
       <div className="flex flex-col gap-3">
         {filteredGroups.map((group) => {
           return (
-            <Card 
-              key={group.id} 
+            <Card
+              key={group.id}
               onClick={() => handleSync(group)}
               className={cn(
-                "cursor-pointer hover:border-primary/50 transition-all bg-card/40 backdrop-blur-md border-primary/20 overflow-hidden group",
-                group.isAdmin && "border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]"
+                'cursor-pointer hover:border-primary/50 transition-all bg-card/40 backdrop-blur-md border-primary/20 overflow-hidden group',
+                group.isAdmin && 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]',
               )}
             >
               <CardContent className="p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4 flex-1">
-                    <div className={cn(
-                      "w-12 h-12 rounded-full overflow-hidden border bg-primary/10 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105",
-                      group.isAdmin ? "border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]" : "border-primary/30"
-                    )}>
+                    <div
+                      className={cn(
+                        'w-12 h-12 rounded-full overflow-hidden border bg-primary/10 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105',
+                        group.isAdmin
+                          ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                          : 'border-primary/30',
+                      )}
+                    >
                       {group.photo ? (
                         <img src={group.photo} alt={group.name} className="w-full h-full object-cover" />
                       ) : (
-                        <Users className={cn("w-6 h-6", group.isAdmin ? "text-amber-500" : "text-primary")} />
+                        <Users className={cn('w-6 h-6', group.isAdmin ? 'text-amber-500' : 'text-primary')} />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -377,23 +413,13 @@ export const GroupsPage: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Button 
-                      variant="ghost"
-                      size="sm"
-                      className="w-full sm:w-auto text-primary hover:bg-primary/10"
-                    >
-                      <Info className="w-4 h-4 mr-2" /> Ver Detalhes
-                    </Button>
-                  </div>
                 </div>
               </CardContent>
             </Card>
           );
         })}
       </div>
-      
+
       {filteredGroups.length === 0 && (
         <div className="text-center py-20 bg-card/20 rounded-2xl border border-dashed border-primary/20">
           <MessageSquare className="w-12 h-12 text-primary/20 mx-auto mb-4" />
@@ -402,7 +428,7 @@ export const GroupsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal de Sincronização Detalhada */}
+      {/* Modal de Detalhes do Grupo */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="max-w-2xl bg-card/95 backdrop-blur-xl border-primary/20 text-foreground">
           <DialogHeader>
@@ -410,9 +436,7 @@ export const GroupsPage: React.FC = () => {
               <RefreshCw className="w-6 h-6 text-primary animate-spin-slow" />
               Detalhes do Grupo
             </DialogTitle>
-            <DialogDescription>
-              Informações completas e opções de sincronização.
-            </DialogDescription>
+            <DialogDescription>Informações completas e opções de sincronização.</DialogDescription>
           </DialogHeader>
 
           {selectedGroup && (
@@ -420,27 +444,37 @@ export const GroupsPage: React.FC = () => {
               <div className="flex flex-col md:flex-row gap-6 items-start">
                 <div className="w-32 h-32 rounded-2xl overflow-hidden border-2 border-primary/30 shadow-lg shrink-0 mx-auto md:mx-0">
                   {selectedGroup.photo ? (
-                    <img src={selectedGroup.photo} alt={selectedGroup.name} className="w-full h-full object-cover" />
+                    <img
+                      src={selectedGroup.photo}
+                      alt={selectedGroup.name}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div className="w-full h-full bg-primary/10 flex items-center justify-center">
                       <Users className="w-12 h-12 text-primary" />
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex-1 space-y-4 text-center md:text-left">
                   <div>
                     <h2 className="text-2xl font-bold text-primary">{selectedGroup.name}</h2>
-                    <p className="text-muted-foreground mt-1">{selectedGroup.description || 'Sem descrição.'}</p>
+                    <p className="text-muted-foreground mt-1">
+                      {selectedGroup.description || 'Sem descrição.'}
+                    </p>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
-                      <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Membros</p>
-                      <p className="text-xl font-bold">{selectedGroup.memberCount}</p>
+                      <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">
+                        Membros
+                      </p>
+                      <p className="text-xl font-bold">{getMemberData(selectedGroup).length}</p>
                     </div>
                     <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
-                      <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">Mensagens</p>
+                      <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-1">
+                        Mensagens
+                      </p>
                       <p className="text-xl font-bold">{selectedGroup.messageCount}</p>
                     </div>
                   </div>
@@ -449,26 +483,29 @@ export const GroupsPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
-                    <h4 className="font-bold flex items-center gap-2 text-primary/80">
-                      <Shield className="w-4 h-4" /> Admins
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedGroup.admins.map((admin, idx) => (
-                        <Badge key={idx} variant="outline" className="bg-primary/5 border-primary/20">
-                          {formatMemberPhone(admin) || admin}
+                  <h4 className="font-bold flex items-center gap-2 text-primary/80">
+                    <Shield className="w-4 h-4" /> Admins
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedGroup.admins
+                      .map((admin) => ({ jid: admin, phone: formatMemberPhone(admin) }))
+                      .filter((a) => a.phone)
+                      .map(({ jid, phone }) => (
+                        <Badge key={jid} variant="outline" className="bg-primary/5 border-primary/20">
+                          {phone}
                         </Badge>
                       ))}
-                    </div>
                   </div>
-                
+                </div>
+
                 <div className="space-y-3">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-bold flex items-center gap-2 text-primary/80">
                       <Users className="w-4 h-4" /> Membros
                     </h4>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-xs text-primary h-auto p-0 hover:bg-transparent underline underline-offset-4"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -479,14 +516,18 @@ export const GroupsPage: React.FC = () => {
                     </Button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {selectedGroup.members.slice(0, 5).map((member, idx) => (
-                      <Badge key={idx} variant="outline" className="bg-muted/20 border-muted/30">
-                        {formatMemberPhone(member) || member}
-                      </Badge>
-                    ))}
-                    {selectedGroup.memberCount > 5 && (
+                    {selectedGroup.members.slice(0, 5).map((member, idx) => {
+                      const phone = formatMemberPhone(member);
+                      if (!phone) return null;
+                      return (
+                        <Badge key={idx} variant="outline" className="bg-muted/20 border-muted/30">
+                          {phone}
+                        </Badge>
+                      );
+                    })}
+                    {getMemberData(selectedGroup).length > 5 && (
                       <Badge variant="outline" className="bg-muted/20 border-muted/30 text-muted-foreground">
-                        +{selectedGroup.memberCount - 5} outros
+                        +{getMemberData(selectedGroup).length - 5} outros
                       </Badge>
                     )}
                   </div>
@@ -498,8 +539,8 @@ export const GroupsPage: React.FC = () => {
                   <h4 className="font-bold flex items-center gap-2">
                     <Download className="w-4 h-4 text-primary" /> Opções de Contatos
                   </h4>
-                  <Button 
-                    variant="primary" 
+                  <Button
+                    variant="primary"
                     size="sm"
                     onClick={() => setIsSaveAgendaModalOpen(true)}
                     className="bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 neon-border flex items-center gap-2"
@@ -507,18 +548,18 @@ export const GroupsPage: React.FC = () => {
                     <Save className="w-4 h-4" /> Salvar contatos para agenda
                   </Button>
                 </div>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => handleExport('csv')}
                     className="border-primary/20 hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-center gap-2 h-12"
                   >
                     <FileSpreadsheet className="w-5 h-5 text-green-500" />
                     Exportar para CSV (Interno)
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => handleExport('excel')}
                     className="border-primary/20 hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-center gap-2 h-12"
                   >
@@ -528,7 +569,8 @@ export const GroupsPage: React.FC = () => {
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-3 flex items-start gap-1">
                   <Info className="w-3 h-3 mt-0.5 shrink-0" />
-                  Os arquivos serão gerados com os números em formato internacional limpo (apenas dígitos), prontos para serem processados internamente.
+                  Os arquivos serão gerados com os números em formato internacional limpo (apenas dígitos),
+                  prontos para serem processados internamente.
                 </p>
               </div>
             </div>
@@ -538,8 +580,13 @@ export const GroupsPage: React.FC = () => {
             <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
               Fechar
             </Button>
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(34,211,238,0.4)]">
-              Sincronizar Agora
+            <Button
+              onClick={handleSyncGroup}
+              disabled={isSyncingGroup}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(34,211,238,0.4)]"
+            >
+              <RefreshCw className={cn('w-4 h-4 mr-2', isSyncingGroup && 'animate-spin')} />
+              {isSyncingGroup ? 'Sincronizando...' : 'Sincronizar Agora'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -554,31 +601,43 @@ export const GroupsPage: React.FC = () => {
               Todos os Membros
             </DialogTitle>
             <DialogDescription>
-              Lista completa de participantes do grupo {selectedGroup?.name}.
+              {selectedGroup && (
+                <>
+                  Lista completa de participantes do grupo {selectedGroup.name}.{' '}
+                  <span className="font-semibold">
+                    {getMemberData(selectedGroup).length} membros válidos.
+                  </span>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="max-h-[500px] overflow-y-auto pr-2 space-y-1 mt-4">
-            {selectedGroup && getMemberData(selectedGroup).map((member, idx) => {
-              return (
-                <div key={idx} className="flex items-center justify-between py-1.5 px-4 rounded-lg bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors">
-                  <div className="flex items-center gap-8 min-w-0">
-                    <p className="text-sm font-semibold truncate w-40">{member.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{member.displayPhone}</p>
+            {selectedGroup &&
+              getMemberData(selectedGroup).map((member, idx) => {
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between py-1.5 px-4 rounded-lg bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <p className="text-sm font-semibold font-mono">{member.displayPhone}</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {member.isAdmin ? (
+                        <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30 text-[10px] h-5 px-2 flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> ADMIN
+                        </Badge>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                          Participante
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center gap-3">
-                    {member.isAdmin ? (
-                      <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30 text-[10px] h-5 px-2 flex items-center gap-1">
-                        <Shield className="w-3 h-3" /> ADMIN
-                      </Badge>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Participante</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
 
           <DialogFooter>
@@ -605,14 +664,15 @@ export const GroupsPage: React.FC = () => {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Nome da Lista</label>
-              <Input 
-                placeholder="Ex: Leads VIP - Grupo Vendas SP" 
+              <Input
+                placeholder="Ex: Leads VIP - Grupo Vendas SP"
                 value={agendaName}
                 onChange={(e) => setAgendaName(e.target.value)}
                 className="bg-card border-primary/20 focus:ring-primary/40"
               />
               <p className="text-[10px] text-muted-foreground italic">
-                * Todos os {selectedGroup?.memberCount} contatos serão salvos com a tag do grupo.
+                * Todos os {selectedGroup && getMemberData(selectedGroup).length} contatos válidos serão
+                salvos com a tag do grupo.
               </p>
             </div>
 
@@ -637,7 +697,7 @@ export const GroupsPage: React.FC = () => {
               <Button variant="ghost" onClick={() => setIsSaveAgendaModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button 
+              <Button
                 onClick={handleSaveToAgenda}
                 disabled={isSaving || !agendaName.trim()}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[140px]"

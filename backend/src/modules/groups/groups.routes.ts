@@ -79,8 +79,15 @@ export async function groupsRoutes(app: FastifyInstance) {
     const remote = groups.find((g) => g.id === group.waGroupId);
     if (!remote) throw new NotFoundError('Grupo não encontrado na sessão conectada');
 
-    const admins = remote.participants.filter((p) => p.admin).map((p) => p.id);
-    const members = remote.participants.map((p) => p.id);
+    const isValidMember = (jid: string) => {
+      const domain = jid.split('@')[1] ?? '';
+      if (domain === 'lid' || domain === 'g.us') return false;
+      const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
+      return digits.length >= 8 && digits.length <= 15;
+    };
+    const admins = remote.participants.filter((p) => p.admin && isValidMember(p.id)).map((p) => p.id);
+    const members = remote.participants.filter((p) => isValidMember(p.id)).map((p) => p.id);
+
     return prisma.whatsAppGroup.update({
       where: { id: group.id },
       data: {
@@ -98,45 +105,76 @@ export async function groupsRoutes(app: FastifyInstance) {
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
 
-    const phones = group.members.map((jid) => cleanJidPhone(jid)).filter(Boolean);
-    if (format === 'csv') {
-      const text = 'phone\n' + phones.join('\n');
-      reply.header('Content-Type', 'text/csv');
-      reply.header('Content-Disposition', `attachment; filename="${group.name}.csv"`);
-      return text;
+    // Deduplicate all JIDs from both admins and members
+    const adminSet = new Set<string>(group.admins);
+    const allJids = new Set<string>([...group.admins, ...group.members]);
+
+    interface Row { phone: string; name: string; is_admin: string }
+    const rows: Row[] = [];
+    for (const jid of allJids) {
+      const phone = cleanJidPhone(jid);
+      if (!phone) continue;
+      rows.push({ phone, name: phone, is_admin: adminSet.has(jid) ? 'sim' : 'nao' });
     }
-    // xlsx simplificado como TSV
-    reply.header('Content-Type', 'text/tab-separated-values');
-    reply.header('Content-Disposition', `attachment; filename="${group.name}.tsv"`);
-    return 'phone\n' + phones.join('\n');
+
+    const safeFilename = group.name
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+
+    if (format === 'csv') {
+      const header = 'phone,name,is_admin\n';
+      const body = rows.map((r) => `${r.phone},${r.name},${r.is_admin}`).join('\n');
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="${safeFilename}.csv"`);
+      return header + body;
+    }
+
+    // xlsx — European Excel-friendly: UTF-8 BOM + semicolon separator, .csv extension
+    const bom = '\uFEFF';
+    const header = 'phone;name;is_admin\n';
+    const body = rows.map((r) => `${r.phone};${r.name};${r.is_admin}`).join('\n');
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="${safeFilename}_excel.csv"`);
+    return bom + header + body;
   });
 
   app.post('/api/groups/:id/save-to-contacts', async (req) => {
     const { id } = req.params as { id: string };
+    const { name } = z.object({ name: z.string().optional() }).parse(req.body);
+
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
 
+    const importName = name?.trim() || `Grupo: ${group.name}`;
+    const groupTag = group.name.replace(/[^\w\s]/g, '').trim();
+
+    // Deduplicate all JIDs from both admins and members
+    const allJids = new Set<string>([...group.admins, ...group.members]);
+
     const imp = await prisma.contactImport.create({
       data: {
-        name: `Grupo: ${group.name}`,
-        filename: `${group.name}.csv`,
+        name: importName,
+        filename: importName,
         status: 'processing',
-        contactCount: group.members.length,
+        contactCount: allJids.size,
       },
     });
+
     let processed = 0;
-    for (const jid of group.members) {
+    for (const jid of allJids) {
       const phone = cleanJidPhone(jid);
       if (!phone) continue;
       try {
         await prisma.contact.upsert({
           where: { phone },
-          create: { phone, name: phone, origin: `import:${imp.id}:group:${group.id}` },
-          update: { origin: `import:${imp.id}:group:${group.id}` },
+          create: { phone, name: phone, origin: `import:${imp.id}`, tags: [groupTag] },
+          update: { origin: `import:${imp.id}`, tags: [groupTag] },
         });
         processed++;
       } catch {}
     }
+
     return prisma.contactImport.update({
       where: { id: imp.id },
       data: { status: 'completed', processedCount: processed },

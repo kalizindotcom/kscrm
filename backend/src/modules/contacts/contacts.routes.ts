@@ -98,6 +98,33 @@ export async function contactsRoutes(app: FastifyInstance) {
     return prisma.contactImport.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   });
 
+  // ── Delete import and all its contacts ───────────────────────────────────
+  app.delete('/api/contacts/imports/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const imp = await prisma.contactImport.findUnique({ where: { id } });
+    if (!imp) return reply.status(404).send({ error: 'Importação não encontrada' });
+    // Delete all contacts that came from this import
+    await prisma.contact.deleteMany({ where: { origin: { startsWith: `import:${id}` } } });
+    // Delete the import record
+    await prisma.contactImport.delete({ where: { id } });
+    return reply.send({ ok: true });
+  });
+
+  // ── Import detail — dynamic segment after all static /imports/* ───────────
+  app.get('/api/contacts/imports/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const imp = await prisma.contactImport.findUnique({ where: { id } });
+    if (!imp) throw new NotFoundError('Importacao nao encontrada');
+
+    const contacts = await prisma.contact.findMany({
+      where: { origin: { startsWith: `import:${id}` } },
+      orderBy: { createdAt: 'desc' },
+      take: 2000,
+    });
+
+    return { ...imp, contacts };
+  });
+
   // ── CSV/JSON import (static path — must come before /:id) ────────────────
   app.post('/api/contacts/import', async (req) => {
     const file = await (req as any).file();
@@ -209,21 +236,6 @@ export async function contactsRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'text/csv');
     reply.header('Content-Disposition', 'attachment; filename="contacts.csv"');
     return header + body;
-  });
-
-  // ── Import detail — dynamic segment after all static /imports/* ───────────
-  app.get('/api/contacts/imports/:id', async (req) => {
-    const { id } = req.params as { id: string };
-    const imp = await prisma.contactImport.findUnique({ where: { id } });
-    if (!imp) throw new NotFoundError('Importacao nao encontrada');
-
-    const contacts = await prisma.contact.findMany({
-      where: { origin: { startsWith: `import:${id}` } },
-      orderBy: { createdAt: 'desc' },
-      take: 2000,
-    });
-
-    return { ...imp, contacts };
   });
 
   // ── Single contact by id (dynamic — last among GETs) ─────────────────────

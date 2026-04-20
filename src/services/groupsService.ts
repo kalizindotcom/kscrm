@@ -14,6 +14,6 @@ export const groupsService = {
   exportUrl: (groupId: string, format: 'csv' | 'xlsx' = 'csv') =>
     `/api/groups/${groupId}/export?format=${format}`,
 
-  saveToContacts: (groupId: string): Promise<any> =>
-    apiClient.post(`/api/groups/${groupId}/save-to-contacts`),
+  saveToContacts: (groupId: string, name: string): Promise<any> =>
+    apiClient.post(`/api/groups/${groupId}/save-to-contacts`, { name }),
 };

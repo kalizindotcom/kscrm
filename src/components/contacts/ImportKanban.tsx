@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileSpreadsheet,
   FileText,
@@ -7,15 +7,18 @@ import {
   AlertCircle,
   Loader2,
   Calendar,
+  Trash2,
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { ContactImport } from '../../types';
 import { cn, formatDate } from '../../lib/utils';
 
 interface ImportKanbanProps {
   imports: ContactImport[];
   onImportClick: (imp: ContactImport) => void;
+  onDeleteImport?: (importId: string) => void;
 }
 
 const statusLabel: Record<string, string> = {
@@ -25,7 +28,9 @@ const statusLabel: Record<string, string> = {
   failed: 'Falhou',
 };
 
-export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportClick }) => {
+export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportClick, onDeleteImport }) => {
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const columns = [
     { id: 'pending', label: 'Pendentes', icon: Clock, color: 'text-amber-500' },
     { id: 'processing', label: 'Processando', icon: Loader2, color: 'text-blue-500' },
@@ -35,6 +40,16 @@ export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportCli
 
   const getImportsByStatus = (status: string) => {
     return imports.filter((imp) => imp.status === status);
+  };
+
+  const handleDelete = async (e: React.MouseEvent, importId: string) => {
+    e.stopPropagation();
+    setDeletingId(importId);
+    try {
+      await onDeleteImport?.(importId);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -70,14 +85,30 @@ export const ImportKanban: React.FC<ImportKanbanProps> = ({ imports, onImportCli
                       )}
                       <p className="font-medium text-xs truncate max-w-[120px]">{imp.name}</p>
                     </div>
-                    <Badge
-                      variant={
-                        imp.status === 'failed' ? 'destructive' : imp.status === 'completed' ? 'secondary' : 'outline'
-                      }
-                      className="text-[9px] px-1.5 py-0"
-                    >
-                      {statusLabel[imp.status] ?? imp.status}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge
+                        variant={
+                          imp.status === 'failed' ? 'destructive' : imp.status === 'completed' ? 'secondary' : 'outline'
+                        }
+                        className="text-[9px] px-1.5 py-0"
+                      >
+                        {statusLabel[imp.status] ?? imp.status}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={(e) => handleDelete(e, imp.id)}
+                        disabled={deletingId === imp.id}
+                        title="Excluir importação"
+                      >
+                        {deletingId === imp.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
