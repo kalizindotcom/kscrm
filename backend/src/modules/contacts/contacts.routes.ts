@@ -76,11 +76,21 @@ export async function contactsRoutes(app: FastifyInstance) {
     return prisma.contact.create({ data: body });
   });
 
-  // ── Bulk delete (static path — must come before /:id) ────────────────────
+  // ── Bulk delete by IDs (static path — must come before /:id) ───────────────
   app.post('/api/contacts/bulk-delete', async (req, reply) => {
     const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
     await prisma.contact.deleteMany({ where: { id: { in: ids } } });
     return reply.send({ ok: true, deleted: ids.length });
+  });
+
+  // ── Delete ALL contacts (static path — must come before /:id) ────────────
+  app.delete('/api/contacts', async (req, reply) => {
+    const { search } = z.object({ search: z.string().optional() }).parse(req.query);
+    const where: any = search
+      ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] }
+      : {};
+    const result = await prisma.contact.deleteMany({ where });
+    return reply.send({ ok: true, deleted: result.count });
   });
 
   // ── Import history list (static path — must come before /:id) ────────────

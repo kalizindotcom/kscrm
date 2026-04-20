@@ -280,7 +280,7 @@ export const ContactsPage: React.FC = () => {
   };
 
   const handleDeleteAllContacts = async () => {
-    if (contacts.length === 0) {
+    if (total === 0) {
       toast.error('Não há contatos para excluir.');
       return;
     }
@@ -290,11 +290,11 @@ export const ContactsPage: React.FC = () => {
       async () => {
         setIsDeletingContacts(true);
         try {
-          await contactService.bulkDelete(contacts.map((c) => c.id));
+          const deleted = await contactService.deleteAll(search || undefined);
           setContacts([]);
           setTotal(0);
           setSelectedContactIds([]);
-          toast.success('Todos os contatos foram excluídos.');
+          toast.success(`${deleted} contato(s) excluído(s) com sucesso.`);
         } catch (error: any) {
           toast.error(error?.message ?? 'Falha ao excluir todos os contatos.');
         } finally {

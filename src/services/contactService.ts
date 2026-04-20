@@ -54,6 +54,12 @@ export const contactService = {
     await apiClient.post('/api/contacts/bulk-delete', { ids });
   },
 
+  deleteAll: async (search?: string): Promise<number> => {
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const result = await apiClient.delete<{ ok: boolean; deleted: number }>(`/api/contacts${query}`);
+    return result.deleted;
+  },
+
   exportContacts: (format: 'csv' | 'json', importIds?: string[]): void => {
     const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3000';
     const token = localStorage.getItem('ks_token');
