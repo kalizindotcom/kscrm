@@ -157,7 +157,12 @@ const toCampaignModel = (payload: any): Campaign => ({
 const WhatsAppPreview: React.FC<{ 
   campaign: Campaign; 
   onBack: () => void;
-  onSave?: (updatedCampaign: Campaign) => void;
+  onSave?: (
+    updatedCampaign: Campaign & {
+      mediaMimetype?: string;
+      mediaFilename?: string;
+    },
+  ) => void | Promise<void>;
   onDelete?: (id: string) => void;
 }> = ({ campaign, onBack, onSave, onDelete }) => {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -172,8 +177,10 @@ const WhatsAppPreview: React.FC<{
     { text: 'Saiba Mais', type: 'url', value: 'https://' },
     { text: 'Falar com Atendente', type: 'reply', value: 'Quero falar com um atendente' }
   ]);
-  const [mediaType, setMediaType] = useState<'image' | 'video' | 'audio' | 'none'>('image');
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<'image' | 'video' | 'audio' | 'none'>(
+    campaign.mediaType && campaign.mediaType !== 'none' ? campaign.mediaType : 'none',
+  );
+  const [mediaUrl, setMediaUrl] = useState<string | null>(campaign.mediaUrl ?? null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
 
   const [contactsCount, setContactsCount] = useState<number | null>(null);
@@ -201,6 +208,7 @@ const WhatsAppPreview: React.FC<{
   const [availableContacts, setAvailableContacts] = useState<Contact[]>([]);
   const [isStartingCampaign, setIsStartingCampaign] = useState(false);
   const [importsList, setImportsList] = useState<{ id: string; name: string; count: number }[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const totalSelectedContacts = importsList
     .filter(imp => selectedImports.includes(imp.id))
@@ -209,12 +217,18 @@ const WhatsAppPreview: React.FC<{
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const localPreviewUrlRef = useRef<string | null>(null);
 
   const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (localPreviewUrlRef.current) {
+        URL.revokeObjectURL(localPreviewUrlRef.current);
+      }
+      const localPreviewUrl = URL.createObjectURL(file);
+      localPreviewUrlRef.current = localPreviewUrl;
       setMediaFile(file);
-      setMediaUrl(URL.createObjectURL(file));
+      setMediaUrl(localPreviewUrl);
       if (file.type.startsWith('image/')) setMediaType('image');
       else if (file.type.startsWith('video/')) setMediaType('video');
       else if (file.type.startsWith('audio/')) setMediaType('audio');
@@ -245,19 +259,59 @@ const WhatsAppPreview: React.FC<{
     setEditedMessage((previous) => previous + emojiData.emoji);
   };
 
-  const handleSaveEdit = () => {
-    if (onSave) {
-      onSave({
-        ...campaign,
-        name: editedName,
-        buttons,
-        buttonsEnabled,
-        messageContent: editedMessage,
-        mediaType,
-        mediaUrl: mediaUrl ?? campaign.mediaUrl,
-      });
+  const handleSaveEdit = async () => {
+    if (!onSave || isSavingEdit) return;
+    if (mediaUrl?.startsWith('blob:') && !mediaFile) {
+      toast.error('Mídia local inválida. Reanexe o arquivo antes de salvar.');
+      return;
     }
-    setIsEditing(false);
+
+    setIsSavingEdit(true);
+    try {
+      let nextMediaUrl: string | undefined = campaign.mediaUrl;
+      let nextMediaType: Campaign['mediaType'] = campaign.mediaType ?? 'none';
+      let mediaMimetype: string | undefined;
+      let mediaFilename: string | undefined;
+
+      if (mediaFile) {
+        const uploaded = await campaignService.uploadMedia(campaign.id, mediaFile);
+        nextMediaUrl = uploaded.mediaUrl;
+        nextMediaType = (uploaded.mediaType as Campaign['mediaType']) ?? mediaType;
+        mediaMimetype = uploaded.mediaMimetype;
+        mediaFilename = uploaded.mediaFilename;
+      } else if (!mediaUrl && campaign.mediaUrl) {
+        await campaignService.removeMedia(campaign.id);
+        nextMediaUrl = undefined;
+        nextMediaType = 'none';
+      } else if (mediaType === 'none') {
+        nextMediaUrl = undefined;
+        nextMediaType = 'none';
+      } else if (mediaUrl) {
+        nextMediaUrl = mediaUrl;
+        nextMediaType = mediaType;
+      }
+
+      await Promise.resolve(
+        onSave({
+          ...campaign,
+          name: editedName,
+          buttons,
+          buttonsEnabled,
+          messageContent: editedMessage,
+          mediaType: nextMediaType,
+          mediaUrl: nextMediaUrl,
+          mediaMimetype,
+          mediaFilename,
+        }),
+      );
+
+      setMediaFile(null);
+      setIsEditing(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao salvar edição da campanha');
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -410,6 +464,15 @@ const WhatsAppPreview: React.FC<{
       .then((items) => setSessions(items))
       .catch(() => undefined);
   }, [sessions.length, setSessions]);
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrlRef.current) {
+        URL.revokeObjectURL(localPreviewUrlRef.current);
+        localPreviewUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Real-time progress via WebSocket (replaces the old 2s polling)
   const { progress: wsProgress, completed: wsCompleted } = useCampaignProgress(
@@ -1094,7 +1157,19 @@ const WhatsAppPreview: React.FC<{
                     <FileAudio className="w-4 h-4 mr-2" /> Áudio
                   </Button>
                   {mediaType !== 'none' && (
-                    <Button variant="ghost" size="sm" onClick={() => { setMediaType('none'); setMediaUrl(null); }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (localPreviewUrlRef.current) {
+                          URL.revokeObjectURL(localPreviewUrlRef.current);
+                          localPreviewUrlRef.current = null;
+                        }
+                        setMediaType('none');
+                        setMediaFile(null);
+                        setMediaUrl(null);
+                      }}
+                    >
                       Remover
                     </Button>
                   )}
@@ -1302,11 +1377,12 @@ const WhatsAppPreview: React.FC<{
 
           <DialogFooter className="p-4 border-t border-primary/20 bg-card/60 backdrop-blur-sm relative z-10">
             <Button variant="outline" onClick={() => setIsEditing(false)}>Cancelar</Button>
-            <Button 
+            <Button
               onClick={handleSaveEdit}
+              disabled={isSavingEdit}
               className="bg-gradient-to-r from-primary to-secondary text-primary-foreground font-bold shadow-[0_0_20px_-5px_hsl(var(--primary)/0.6)] hover:shadow-[0_0_30px_-5px_hsl(var(--primary)/0.8)] hover:scale-[1.02] transition-all"
             >
-              <Save className="w-4 h-4 mr-2" /> Salvar Alterações
+              <Save className="w-4 h-4 mr-2" /> {isSavingEdit ? 'Salvando...' : 'Salvar Alterações'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1363,7 +1439,17 @@ export const CampaignsPage: React.FC = () => {
     }
   }, [location.state]);
 
-  const handleSaveCampaign = async (updatedCampaign: Campaign) => {
+  const handleSaveCampaign = async (
+    updatedCampaign: Campaign & {
+      mediaMimetype?: string;
+      mediaFilename?: string;
+    },
+  ) => {
+    if (updatedCampaign.mediaUrl?.startsWith('blob:')) {
+      toast.error('A mídia ainda não foi enviada. Reanexe o arquivo e salve novamente.');
+      return;
+    }
+
     try {
       const saved = await campaignService.update(updatedCampaign.id, {
         name: updatedCampaign.name,
@@ -1375,6 +1461,8 @@ export const CampaignsPage: React.FC = () => {
         buttons: updatedCampaign.buttons ?? [],
         mediaType: updatedCampaign.mediaType as any,
         mediaUrl: updatedCampaign.mediaUrl,
+        mediaMimetype: updatedCampaign.mediaMimetype,
+        mediaFilename: updatedCampaign.mediaFilename,
       });
       const normalized = toCampaignModel(saved);
       setCampaigns((previous) => previous.map((campaign) => (campaign.id === normalized.id ? normalized : campaign)));
@@ -1624,5 +1712,4 @@ export const CampaignsPage: React.FC = () => {
     </div>
   );
 };
-
 
