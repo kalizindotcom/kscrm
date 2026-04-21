@@ -1396,8 +1396,17 @@ export const CampaignsPage: React.FC = () => {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isLoadingCampaigns, setIsLoadingCampaigns] = useState(false);
   const [activeTab, setActiveTab] = useState<'list' | 'history'>('list');
-  const { isFiring, activeCampaignId, progress } = useAppStore();
+  const {
+    isFiring,
+    activeCampaignId,
+    progress,
+    setProgress,
+    setCurrentTarget,
+    setIsFiring,
+    setActiveCampaignId,
+  } = useAppStore();
   const location = useLocation();
+  const { progress: activeWsProgress, completed: activeWsCompleted } = useCampaignProgress(activeCampaignId);
 
   const loadCampaigns = async () => {
     setIsLoadingCampaigns(true);
@@ -1438,6 +1447,60 @@ export const CampaignsPage: React.FC = () => {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  // Keep active campaign progress in sync at page level so list cards update in real-time.
+  useEffect(() => {
+    if (!activeWsProgress) return;
+    setProgress(activeWsProgress.progress);
+    if (activeWsProgress.currentTarget) {
+      setCurrentTarget(activeWsProgress.currentTarget);
+    }
+
+    setCampaigns((previous) =>
+      previous.map((campaign) =>
+        campaign.id === activeWsProgress.campaignId
+          ? {
+              ...campaign,
+              status: 'running',
+              sentCount: activeWsProgress.sent + activeWsProgress.failed,
+              deliveredCount: activeWsProgress.sent,
+              failedCount: activeWsProgress.failed,
+            }
+          : campaign,
+      ),
+    );
+  }, [activeWsProgress, setProgress, setCurrentTarget]);
+
+  useEffect(() => {
+    if (!activeWsCompleted) return;
+
+    const totalProcessed = activeWsCompleted.sent + activeWsCompleted.failed;
+    const finalProgress =
+      activeWsCompleted.status === 'completed'
+        ? 100
+        : activeWsCompleted.total > 0
+        ? Math.round((totalProcessed / activeWsCompleted.total) * 100)
+        : 0;
+
+    setProgress(finalProgress);
+    setCurrentTarget(null);
+    setIsFiring(false);
+    setActiveCampaignId(null);
+
+    setCampaigns((previous) =>
+      previous.map((campaign) =>
+        campaign.id === activeWsCompleted.campaignId
+          ? {
+              ...campaign,
+              status: activeWsCompleted.status,
+              sentCount: totalProcessed,
+              deliveredCount: activeWsCompleted.sent,
+              failedCount: activeWsCompleted.failed,
+            }
+          : campaign,
+      ),
+    );
+  }, [activeWsCompleted, setActiveCampaignId, setCurrentTarget, setIsFiring, setProgress]);
 
   const handleSaveCampaign = async (
     updatedCampaign: Campaign & {
