@@ -131,8 +131,8 @@ const toCampaignModel = (payload: any): Campaign => ({
   name: payload.name,
   channel: (payload.channel as CampaignChannel) ?? 'whatsapp',
   status: (payload.status as CampaignStatus) ?? 'draft',
-  templateId: payload.templateId ?? '',
-  segmentId: payload.segmentId ?? '1',
+  templateId: payload.templateId ?? undefined,
+  segmentId: payload.segmentId ?? undefined,
   messageContent: payload.messageContent ?? undefined,
   scheduledAt: payload.scheduledAt ?? undefined,
   sentCount: payload.sentCount ?? 0,
@@ -387,7 +387,7 @@ const WhatsAppPreview: React.FC<{
   useEffect(() => {
     contactService
       .list({ pageSize: 500 })
-      .then((items) => setAvailableContacts(items))
+      .then((res) => setAvailableContacts(res.items ?? []))
       .catch(() => setAvailableContacts([]));
     templateService
       .list()
@@ -886,13 +886,15 @@ const WhatsAppPreview: React.FC<{
             </CardContent>
           </Card>
 
-          <CampaignFiringModal 
+          <CampaignFiringModal
             isOpen={showFiringModal}
             onClose={() => setShowFiringModal(false)}
             onConfirm={confirmStartCampaign}
             campaignName={campaign.name}
-            contactCount={showContactSelector ? totalSelectedContacts : (contactsCount || availableContacts.length)}
-            sessionName={sessions.find(s => s.id === selectedSessionId)?.name || 'Sessão Selecionada'}
+            contactCount={showContactSelector ? totalSelectedContacts : (contactsCount ?? 0)}
+            sessionName={sessions.find(s => s.id === selectedSessionId)?.name ?? 'Sessão Selecionada'}
+            intervalSec={intervalValue}
+            isSubmitting={isStartingCampaign}
           />
 
           <div className={cn("bg-muted/30 rounded-lg p-4 space-y-3", isFiring && "opacity-50 pointer-events-none")}>

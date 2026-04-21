@@ -53,8 +53,8 @@ export interface Campaign {
   name: string;
   channel: CampaignChannel;
   status: CampaignStatus;
-  templateId: string;
-  segmentId: string;
+  templateId?: string;
+  segmentId?: string;
   messageContent?: string;
   scheduledAt?: string;
   sentCount: number;
