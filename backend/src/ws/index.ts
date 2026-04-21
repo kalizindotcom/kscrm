@@ -10,7 +10,8 @@ export type WsEvent =
   | { type: 'session.log'; sessionId: string; log: any }
   | { type: 'message.new'; conversationId: string; message: any }
   | { type: 'message.status_update'; conversationId: string; messageId: string; status: string }
-  | { type: 'campaign.progress'; campaignId: string; progress: number; currentTarget?: string; sent: number; failed: number }
+  | { type: 'campaign.progress'; campaignId: string; progress: number; currentTarget?: string; sent: number; failed: number; total?: number; waiting?: string; error?: string }
+  | { type: 'campaign.completed'; campaignId: string; status: 'completed' | 'cancelled' | 'paused' | 'failed'; sent: number; failed: number; skipped: number; total: number; durationMs: number; startedAt: string | null; finishedAt: string | null }
   | { type: 'import.progress'; importId: string; processedCount: number; status: string };
 
 let io: IOServer | null = null;

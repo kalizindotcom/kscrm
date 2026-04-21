@@ -184,4 +184,29 @@ export const campaignService = {
     apiClient.post<{ reset: number; started: boolean }>(`/api/campaigns/${id}/retry-failed`, {
       startNow,
     }),
+  restart: (id: string) =>
+    apiClient.post<{ ok: boolean; reset: number }>(`/api/campaigns/${id}/restart`),
+
+  history: (limit = 50) =>
+    apiClient.get<CampaignHistoryEntry[]>('/api/campaigns/history', { query: { limit } as any }),
 };
+
+export interface CampaignHistoryEntry {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  channel: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number;
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  pending: number;
+  successRate: number;
+  session: { id: string; label: string; phoneNumber?: string | null } | null;
+  mediaType?: string | null;
+  hasMedia: boolean;
+  messagePreview: string;
+}

@@ -68,6 +68,8 @@ import { FireButton } from "../components/ui/FireButton";
 import { useAppStore } from '../store';
 import { useSessionStore } from '../store/useSessionStore';
 import { CampaignFiringModal } from '../components/campaigns/CampaignFiringModal';
+import { CampaignCompletionModal, type CampaignCompletionStats } from '../components/campaigns/CampaignCompletionModal';
+import { CampaignHistoryTab } from '../components/campaigns/CampaignHistoryTab';
 import { CampaignStatus, CampaignChannel, Campaign, Contact, CampaignButton, MessageTemplate } from '../types';
 import { campaignService, type TargetSource } from '../services/campaignService';
 import { contactService } from '../services/contactService';
@@ -178,6 +180,8 @@ const WhatsAppPreview: React.FC<{
   const [intervalValue, setIntervalValue] = useState(15);
   const [isUploading, setIsUploading] = useState(false);
   const [showFiringModal, setShowFiringModal] = useState(false);
+  const [completionStats, setCompletionStats] = useState<CampaignCompletionStats | null>(null);
+  const [completionFailed, setCompletionFailed] = useState<{ phone: string; name?: string | null; error?: string | null }[]>([]);
   const { 
     isFiring, 
     setIsFiring, 
@@ -408,7 +412,7 @@ const WhatsAppPreview: React.FC<{
   }, [sessions.length, setSessions]);
 
   // Real-time progress via WebSocket (replaces the old 2s polling)
-  const wsProgress = useCampaignProgress(
+  const { progress: wsProgress, completed: wsCompleted } = useCampaignProgress(
     isFiring && activeCampaignId === campaign.id ? campaign.id : null,
   );
 
@@ -416,7 +420,42 @@ const WhatsAppPreview: React.FC<{
     if (!wsProgress) return;
     setProgress(wsProgress.progress);
     if (wsProgress.currentTarget) setCurrentTarget(wsProgress.currentTarget);
+    if (wsProgress.error) toast.error(wsProgress.error);
   }, [wsProgress, setProgress, setCurrentTarget]);
+
+  // Handle terminal campaign.completed event — show summary modal
+  useEffect(() => {
+    if (!wsCompleted) return;
+    setIsFiring(false);
+    setActiveCampaignId(null);
+    setIsPaused(false);
+    setProgress(wsCompleted.status === 'completed' ? 100 : wsCompleted.total > 0 ? Math.round(((wsCompleted.sent + wsCompleted.failed) / wsCompleted.total) * 100) : 0);
+    setCurrentTarget(null);
+    setCompletionStats({
+      status: wsCompleted.status,
+      sent: wsCompleted.sent,
+      failed: wsCompleted.failed,
+      skipped: wsCompleted.skipped,
+      total: wsCompleted.total,
+      durationMs: wsCompleted.durationMs,
+      startedAt: wsCompleted.startedAt,
+      finishedAt: wsCompleted.finishedAt,
+    });
+    // Fetch failed targets sample for the modal
+    if (wsCompleted.failed > 0) {
+      campaignService
+        .getTargets(campaign.id, { status: 'failed', pageSize: 100 })
+        .then((res) =>
+          setCompletionFailed(
+            res.items.map((t) => ({ phone: t.phone, name: t.name, error: t.error })),
+          ),
+        )
+        .catch(() => setCompletionFailed([]));
+    } else {
+      setCompletionFailed([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsCompleted]);
 
   // Reconcile terminal status (completed/cancelled/failed) by refetching periodically while running.
   useEffect(() => {
@@ -897,6 +936,36 @@ const WhatsAppPreview: React.FC<{
             isSubmitting={isStartingCampaign}
           />
 
+          <CampaignCompletionModal
+            isOpen={!!completionStats}
+            onClose={() => setCompletionStats(null)}
+            campaignName={campaign.name}
+            stats={completionStats}
+            failedTargets={completionFailed}
+            onRestart={async () => {
+              try {
+                setCompletionStats(null);
+                // Backend's fire route auto-resets targets when the campaign is in a terminal state
+                const result = await campaignService.fire(campaign.id, {
+                  sessionId: selectedSessionId || undefined,
+                  intervalSec: intervalValue,
+                });
+                if (result.status === 'running') {
+                  toast.success('Disparo reiniciado!');
+                  setIsFiring(true);
+                  setActiveCampaignId(campaign.id);
+                  setIsPaused(false);
+                  setProgress(0);
+                  setCurrentTarget(null);
+                } else {
+                  toast.success('Campanha reagendada.');
+                }
+              } catch (err: any) {
+                toast.error(err?.message ?? 'Falha ao reiniciar campanha');
+              }
+            }}
+          />
+
           <div className={cn("bg-muted/30 rounded-lg p-4 space-y-3", isFiring && "opacity-50 pointer-events-none")}>
             <h3 className="text-sm font-bold flex items-center gap-2">
               <AlertCircle className="w-4 h-4" /> Configurações de Envio
@@ -1250,6 +1319,7 @@ export const CampaignsPage: React.FC = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isLoadingCampaigns, setIsLoadingCampaigns] = useState(false);
+  const [activeTab, setActiveTab] = useState<'list' | 'history'>('list');
   const { isFiring, activeCampaignId, progress } = useAppStore();
   const location = useLocation();
 
@@ -1355,29 +1425,73 @@ export const CampaignsPage: React.FC = () => {
 
       <div className="flex items-center justify-between border-b pb-4">
         <div className="flex items-center gap-2">
-          <Badge variant="default" className="rounded-full px-4 py-1">Todas</Badge>
-          <span className="text-sm text-muted-foreground">{campaigns.length} campanhas</span>
+          <button
+            onClick={() => setActiveTab('list')}
+            className={cn(
+              'px-4 py-1.5 rounded-full text-sm font-bold transition-all',
+              activeTab === 'list'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            Todas
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={cn(
+              'px-4 py-1.5 rounded-full text-sm font-bold transition-all flex items-center gap-1.5',
+              activeTab === 'history'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            <BarChart2 className="w-3.5 h-3.5" /> Histórico
+          </button>
+          {activeTab === 'list' && (
+            <span className="text-sm text-muted-foreground ml-2">{campaigns.length} campanhas</span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="search"
-              placeholder="Buscar campanhas..."
-              className="pl-8 h-9 w-[200px] lg:w-[300px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
+        {activeTab === 'list' && (
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="search"
+                placeholder="Buscar campanhas..."
+                className="pl-8 h-9 w-[200px] lg:w-[300px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+            <Button variant="outline" size="sm">
+              <Filter className="w-4 h-4 mr-2" /> Filtrar
+            </Button>
           </div>
-          <Button variant="outline" size="sm">
-            <Filter className="w-4 h-4 mr-2" /> Filtrar
-          </Button>
-        </div>
+        )}
       </div>
 
-      {isLoadingCampaigns && (
+      {activeTab === 'history' && (
+        <CampaignHistoryTab
+          onRestart={async (id) => {
+            try {
+              const result = await campaignService.fire(id, {});
+              if (result.status === 'running') {
+                toast.success('Disparo reiniciado!');
+                const latest = await campaignService.get(id);
+                setSelectedCampaign(toCampaignModel(latest));
+              } else {
+                toast.success(`Campanha ${result.status}.`);
+              }
+            } catch (err: any) {
+              toast.error(err?.message ?? 'Falha ao reiniciar');
+            }
+          }}
+        />
+      )}
+
+      {activeTab === 'list' && isLoadingCampaigns && (
         <div className="text-sm text-muted-foreground">Carregando campanhas...</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {activeTab === 'list' && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {campaigns.map((campaign) => {
           const isRunning = campaign.status === 'running' || (isFiring && activeCampaignId === campaign.id);
           const StatusIcon = statusMap[campaign.status].icon;
@@ -1506,7 +1620,7 @@ export const CampaignsPage: React.FC = () => {
             </Card>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 };

@@ -103,6 +103,10 @@ export async function startCampaign(campaignId: string): Promise<void> {
   });
 
   controllers.set(campaignId, controller);
+
+  // Emit an immediate progress event so the UI leaves the "Iniciando..." state
+  // as soon as the worker is scheduled (before the first target completes).
+  emitCurrentProgress(campaignId).catch(() => undefined);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -300,13 +304,94 @@ async function markTargetFailed(targetId: string, message: string) {
 }
 
 async function finalizeCampaign(campaignId: string, status: string) {
-  await prisma.campaign.update({
+  const finishedAt =
+    status === 'completed' || status === 'cancelled' || status === 'failed'
+      ? new Date()
+      : undefined;
+
+  const updated = await prisma.campaign.update({
     where: { id: campaignId },
     data: {
       status,
-      finishedAt: status === 'completed' || status === 'cancelled' ? new Date() : undefined,
+      finishedAt,
     },
   });
+
+  // Emit campaign.completed for terminal states so the UI can show a summary modal
+  if (status === 'completed' || status === 'cancelled' || status === 'paused' || status === 'failed') {
+    const counts = await prisma.campaignTarget.groupBy({
+      by: ['status'],
+      where: { campaignId },
+      _count: { _all: true },
+    });
+    const total = counts.reduce((a, b) => a + (b._count?._all ?? 0), 0);
+    const sent = counts.find((c) => c.status === 'sent')?._count?._all ?? 0;
+    const failed = counts.find((c) => c.status === 'failed')?._count?._all ?? 0;
+    const skipped = counts.find((c) => c.status === 'skipped')?._count?._all ?? 0;
+    const startedAt = updated.startedAt ?? null;
+    const finishedAtOut = updated.finishedAt ?? finishedAt ?? null;
+    const durationMs =
+      startedAt && finishedAtOut
+        ? new Date(finishedAtOut).getTime() - new Date(startedAt).getTime()
+        : 0;
+
+    emitTo(`campaign:${campaignId}`, {
+      type: 'campaign.completed',
+      campaignId,
+      status: status as 'completed' | 'cancelled' | 'paused' | 'failed',
+      sent,
+      failed,
+      skipped,
+      total,
+      durationMs,
+      startedAt: startedAt ? new Date(startedAt).toISOString() : null,
+      finishedAt: finishedAtOut ? new Date(finishedAtOut).toISOString() : null,
+    });
+  }
+}
+
+/**
+ * Reset all non-pending targets back to pending and zero out campaign counters,
+ * so that a terminated campaign can be fired again.
+ */
+export async function resetCampaignTargets(campaignId: string): Promise<number> {
+  // Stop worker if somehow running
+  const active = controllers.get(campaignId);
+  if (active) {
+    active.state = 'stopping';
+    try {
+      await active.done;
+    } catch {
+      // ignore
+    }
+  }
+
+  const { count } = await prisma.campaignTarget.updateMany({
+    where: { campaignId, status: { not: 'pending' } },
+    data: {
+      status: 'pending',
+      claimedAt: null,
+      processedAt: null,
+      error: null,
+      waMessageId: null,
+      attempts: 0,
+    },
+  });
+
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: {
+      sentCount: 0,
+      failedCount: 0,
+      deliveredCount: 0,
+      responseCount: 0,
+      startedAt: null,
+      finishedAt: null,
+      status: 'draft',
+    },
+  });
+
+  return count;
 }
 
 async function emitCurrentProgress(campaignId: string, currentTarget?: string) {
@@ -333,6 +418,7 @@ async function emitCurrentProgress(campaignId: string, currentTarget?: string) {
     currentTarget,
     sent,
     failed,
+    total,
   });
 }
 
@@ -405,23 +491,32 @@ function firstName(full?: string | null): string {
 }
 
 async function loadMediaBuffer(mediaUrl: string): Promise<Buffer> {
-  // Local uploaded file (/uploads/xxx.ext)
-  if (mediaUrl.startsWith('/uploads/')) {
-    const fileName = mediaUrl.replace(/^\/uploads\//, '');
-    const full = path.resolve(env.UPLOAD_DIR, fileName);
-    return fs.readFile(full);
+  try {
+    // Local uploaded file (/uploads/xxx.ext)
+    if (mediaUrl.startsWith('/uploads/')) {
+      const fileName = mediaUrl.replace(/^\/uploads\//, '');
+      const full = path.resolve(env.UPLOAD_DIR, fileName);
+      return await fs.readFile(full);
+    }
+    if (/^https?:\/\//i.test(mediaUrl)) {
+      const res = await fetch(mediaUrl);
+      if (!res.ok) throw new Error(`Falha ao baixar mídia (HTTP ${res.status})`);
+      const ab = await res.arrayBuffer();
+      return Buffer.from(ab);
+    }
+    // Assume local path
+    const full = path.isAbsolute(mediaUrl)
+      ? mediaUrl
+      : path.resolve(env.UPLOAD_DIR, mediaUrl);
+    return await fs.readFile(full);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') {
+      throw new Error(
+        `Arquivo de mídia não encontrado no servidor (${mediaUrl}). Reanexe a mídia na campanha.`,
+      );
+    }
+    throw new Error(`Falha ao carregar mídia: ${err?.message ?? err}`);
   }
-  if (/^https?:\/\//i.test(mediaUrl)) {
-    const res = await fetch(mediaUrl);
-    if (!res.ok) throw new Error(`Falha ao baixar mídia (${res.status})`);
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
-  }
-  // Assume local path
-  const full = path.isAbsolute(mediaUrl)
-    ? mediaUrl
-    : path.resolve(env.UPLOAD_DIR, mediaUrl);
-  return fs.readFile(full);
 }
 
 function guessMime(type: string): string {

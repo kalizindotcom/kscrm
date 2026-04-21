@@ -29,6 +29,7 @@ import {
   pauseCampaign,
   cancelCampaign,
   isActive,
+  resetCampaignTargets,
 } from './campaign-worker.js';
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -578,9 +579,23 @@ export async function campaignsRoutes(app: FastifyInstance) {
       throw new AppError('Sessão não está conectada', 400, 'SESSION_NOT_CONNECTED');
     }
 
-    const pending = await prisma.campaignTarget.count({
+    let pending = await prisma.campaignTarget.count({
       where: { campaignId: id, status: { in: ['pending', 'sending'] } },
     });
+
+    // Auto-reset: if the campaign is in a terminal state with no pending targets,
+    // treat "fire" as "restart" — reset all targets to pending and dispatch again.
+    if (
+      pending === 0 &&
+      ['completed', 'cancelled', 'failed'].includes(camp.status)
+    ) {
+      const total = await prisma.campaignTarget.count({ where: { campaignId: id } });
+      if (total > 0) {
+        await resetCampaignTargets(id);
+        pending = total;
+      }
+    }
+
     if (pending === 0) {
       throw new AppError('Nenhum destinatário pendente. Adicione alvos antes de disparar.', 400, 'NO_TARGETS');
     }
@@ -641,6 +656,83 @@ export async function campaignsRoutes(app: FastifyInstance) {
       await prisma.campaign.update({ where: { id }, data: { status: 'cancelled', finishedAt: new Date() } });
     }
     return { ok: true };
+  });
+
+  // ── Restart: reset all targets to pending, zero counters, keep targets ────
+  app.post('/api/campaigns/:id/restart', async (req) => {
+    const { id } = req.params as { id: string };
+    await ensureCampaignOwned(id, req.user!.sub);
+    if (isActive(id)) {
+      throw new AppError('Campanha em execução. Pause antes de reiniciar.', 409, 'CAMPAIGN_RUNNING');
+    }
+    const reset = await resetCampaignTargets(id);
+    return { ok: true, reset };
+  });
+
+  // ── History: list terminal campaigns with summary stats ───────────────────
+  app.get('/api/campaigns/history', async (req) => {
+    const { limit } = z
+      .object({ limit: z.coerce.number().min(1).max(200).default(50) })
+      .parse(req.query);
+
+    const rows = await prisma.campaign.findMany({
+      where: {
+        userId: req.user!.sub,
+        status: { in: ['completed', 'cancelled', 'failed', 'paused'] },
+      },
+      orderBy: [{ finishedAt: 'desc' }, { updatedAt: 'desc' }],
+      take: limit,
+      include: { session: { select: { id: true, name: true, phoneNumber: true } } },
+    });
+
+    const ids = rows.map((r) => r.id);
+    const counts = ids.length
+      ? await prisma.campaignTarget.groupBy({
+          by: ['campaignId', 'status'],
+          where: { campaignId: { in: ids } },
+          _count: { _all: true },
+        })
+      : [];
+
+    const byCamp: Record<string, Record<string, number>> = {};
+    for (const c of counts) {
+      (byCamp[c.campaignId] ??= {})[c.status] = c._count?._all ?? 0;
+    }
+
+    return rows.map((r) => {
+      const s = byCamp[r.id] ?? {};
+      const total = Object.values(s).reduce((a, b) => a + b, 0);
+      const sent = s.sent ?? 0;
+      const failed = s.failed ?? 0;
+      const skipped = s.skipped ?? 0;
+      const pending = (s.pending ?? 0) + (s.sending ?? 0);
+      const durationMs =
+        r.startedAt && r.finishedAt
+          ? new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()
+          : 0;
+      const successRate = total > 0 ? Math.round((sent / total) * 100) : 0;
+      return {
+        id: r.id,
+        name: r.name,
+        status: r.status,
+        channel: r.channel,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        durationMs,
+        total,
+        sent,
+        failed,
+        skipped,
+        pending,
+        successRate,
+        session: r.session
+          ? { id: r.session.id, label: r.session.name, phoneNumber: r.session.phoneNumber }
+          : null,
+        mediaType: r.mediaType,
+        hasMedia: !!r.mediaUrl,
+        messagePreview: (r.messageContent ?? '').slice(0, 160),
+      };
+    });
   });
 
   // ── Retry failed targets (resets them to pending, optionally fires) ───────
