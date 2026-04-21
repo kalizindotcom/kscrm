@@ -62,16 +62,19 @@ import {
   PopoverTrigger,
 } from '../components/ui/popover';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { toast } from 'sonner';
 import { cn, formatDate } from '../lib/utils';
 import { FireButton } from "../components/ui/FireButton";
 import { useAppStore } from '../store';
 import { useSessionStore } from '../store/useSessionStore';
 import { CampaignFiringModal } from '../components/campaigns/CampaignFiringModal';
 import { CampaignStatus, CampaignChannel, Campaign, Contact, CampaignButton, MessageTemplate } from '../types';
-import { campaignService } from '../services/campaignService';
+import { campaignService, type TargetSource } from '../services/campaignService';
 import { contactService } from '../services/contactService';
 import { sessionService } from '../services/sessionService';
 import { templateService } from '../services/templateService';
+import { groupsService } from '../services/groupsService';
+import { useCampaignProgress } from '../hooks/useCampaignProgress';
 import { Switch } from '../components/ui/switch';
 import { Checkbox } from '../components/ui/checkbox';
 import { 
@@ -88,6 +91,8 @@ const statusMap: Record<CampaignStatus, { label: string, variant: any, icon: any
   running: { label: 'Em andamento', variant: 'default', icon: Send },
   completed: { label: 'Concluída', variant: 'success', icon: CheckCircle2 },
   paused: { label: 'Pausada', variant: 'error', icon: PauseCircle },
+  cancelled: { label: 'Cancelada', variant: 'outline', icon: XCircle },
+  failed: { label: 'Falhou', variant: 'error', icon: AlertCircle },
 };
 
 const channelIconMap: Record<CampaignChannel, any> = {
@@ -95,24 +100,29 @@ const channelIconMap: Record<CampaignChannel, any> = {
   sms: MessageSquare,
 };
 
+// XSS-safe: escape HTML first, then apply WhatsApp formatting.
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// Sample vars for preview rendering of {{variable}} placeholders.
+const samplePreviewVars: Record<string, string> = {
+  nome: 'João',
+  primeiro_nome: 'João',
+  telefone: '+55 11 99999-9999',
+};
+
+const applySampleVars = (text: string) =>
+  text.replace(/\{\{\s*([a-zA-Z_][\w.-]*)\s*\}\}/g, (_m, key) => samplePreviewVars[key] ?? `[${key}]`);
+
 const formatWhatsAppMessage = (text: string) => {
-  if (!text) return text;
-  
-  // Bold: *text* -> <strong>text</strong>
-  let formatted = text.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
-  
-  // Italic: _text_ -> <em>text</em>
-  formatted = formatted.replace(/_(.*?)_/g, '<em>$1</em>');
-  
-  // Strikethrough: ~text~ -> <del>text</del>
-  formatted = formatted.replace(/~(.*?)~/g, '<del>$1</del>');
-  
-  // Monospace: ```text``` -> <code>text</code>
-  formatted = formatted.replace(/```(.*?)```/g, '<code>$1</code>');
-  
-  // New lines: \n -> <br />
+  if (!text) return null;
+  let formatted = escapeHtml(applySampleVars(text));
+  // Monospace must run before single-char markers (```text```)
+  formatted = formatted.replace(/```([\s\S]*?)```/g, '<code>$1</code>');
+  formatted = formatted.replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
+  formatted = formatted.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+  formatted = formatted.replace(/~([^~\n]+)~/g, '<del>$1</del>');
   formatted = formatted.split('\n').join('<br />');
-  
   return <div dangerouslySetInnerHTML={{ __html: formatted }} />;
 };
 
@@ -246,76 +256,132 @@ const WhatsAppPreview: React.FC<{
     setIsEditing(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploading(true);
-      setTimeout(() => {
-        const count = Math.floor(Math.random() * 500) + 124;
-        setContactsCount(count);
-        setIsUploading(false);
-      }, 1000);
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const result = await campaignService.uploadCSV(campaign.id, file);
+      setContactsCount(result.total);
+      toast.success(
+        `CSV processado: ${result.added} adicionados, ${result.duplicates} duplicados. Total: ${result.total}.`,
+      );
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao enviar CSV');
+    } finally {
+      setIsUploading(false);
+      // reset the input so the same file can be re-uploaded
+      e.target.value = '';
     }
   };
 
-  const handleStartCampaign = () => {
+  const handleStartCampaign = async () => {
     if (isFiring && activeCampaignId !== campaign.id) {
-      alert('Já existe uma campanha em andamento. Interrompa-a antes de iniciar uma nova.');
+      toast.error('Já existe uma campanha em andamento. Interrompa-a antes de iniciar uma nova.');
       return;
     }
     if (!selectedSessionId) {
-      alert('Por favor, selecione uma sessão para realizar o disparo.');
+      toast.error('Selecione uma sessão para realizar o disparo.');
       return;
     }
+
+    // If the user selected imports from the picker, push them as targets now.
+    if (showContactSelector && selectedImports.length > 0) {
+      try {
+        await campaignService.setTargets(campaign.id, {
+          replace: true,
+          importIds: selectedImports,
+        });
+      } catch (err: any) {
+        toast.error(err?.message ?? 'Falha ao carregar contatos das listas');
+        return;
+      }
+    }
+
+    // Validate there are real targets
+    try {
+      const detail = await campaignService.get(campaign.id);
+      const pending = detail.targetsByStatus?.pending ?? 0;
+      if (pending === 0 && (detail.targetTotal ?? 0) === 0) {
+        toast.error('Nenhum destinatário pendente. Envie um CSV ou selecione listas antes de disparar.');
+        return;
+      }
+    } catch {
+      // fallthrough — backend will reject if empty
+    }
+
     setShowFiringModal(true);
   };
 
   const confirmStartCampaign = async () => {
+    setIsStartingCampaign(true);
     try {
-      const preferredCount = contactsCount || totalSelectedContacts || availableContacts.length;
-      const targets = availableContacts.slice(0, preferredCount).map((contact) => ({
-        phone: contact.phone,
-        name: contact.name,
-      }));
-
-      if (!targets.length) {
-        alert('Não há contatos reais disponíveis para disparo. Importe contatos antes de iniciar.');
-        return;
-      }
-
-      setIsStartingCampaign(true);
-      await campaignService.fire(campaign.id, {
+      const result = await campaignService.fire(campaign.id, {
         sessionId: selectedSessionId,
         intervalSec: intervalValue,
-        targets,
       });
 
-      setIsFiring(true);
-      setActiveCampaignId(campaign.id);
-      setIsPaused(false);
-      setProgress(0);
-      setCurrentTarget(targets[0]?.phone ?? null);
+      if (result.status === 'scheduled') {
+        toast.success('Campanha agendada com sucesso.');
+      } else {
+        toast.success('Disparo iniciado!');
+        setIsFiring(true);
+        setActiveCampaignId(campaign.id);
+        setIsPaused(false);
+        setProgress(0);
+        setCurrentTarget(null);
+      }
+      setShowFiringModal(false);
     } catch (error: any) {
-      alert(error?.message ?? 'Falha ao iniciar campanha.');
+      toast.error(error?.message ?? 'Falha ao iniciar campanha.');
     } finally {
       setIsStartingCampaign(false);
     }
   };
 
-  const handleTogglePause = () => {
-    if (!isPaused) {
-      campaignService.cancel(campaign.id).catch(() => undefined);
+  const handleTogglePause = async () => {
+    try {
+      if (!isPaused) {
+        await campaignService.pause(campaign.id);
+        setIsPaused(true);
+        toast.info('Campanha pausada. O disparo atual será concluído.');
+      } else {
+        await campaignService.resume(campaign.id);
+        setIsPaused(false);
+        toast.success('Campanha retomada.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao alterar estado da campanha');
     }
-    setIsPaused((previous) => !previous);
   };
 
-  const handleCancelCampaign = () => {
-    campaignService.cancel(campaign.id).catch(() => undefined);
-    setIsFiring(false);
-    setActiveCampaignId(null);
-    setIsPaused(false);
-    setProgress(0);
-    setCurrentTarget(null);
+  const handleCancelCampaign = async () => {
+    try {
+      await campaignService.cancel(campaign.id);
+      setIsFiring(false);
+      setActiveCampaignId(null);
+      setIsPaused(false);
+      setProgress(0);
+      setCurrentTarget(null);
+      toast.success('Campanha cancelada.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao cancelar');
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    try {
+      const res = await campaignService.retryFailed(campaign.id);
+      if (res.reset === 0) {
+        toast.info('Não há destinatários com falha para reprocessar.');
+      } else {
+        toast.success(
+          `${res.reset} destinatários reenfileirados${res.started ? ' — disparo iniciado.' : '.'}`,
+        );
+      }
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao reprocessar');
+    }
   };
 
   useEffect(() => {
@@ -341,49 +407,40 @@ const WhatsAppPreview: React.FC<{
       .catch(() => undefined);
   }, [sessions.length, setSessions]);
 
-  useEffect(() => {
-    if (!isFiring || activeCampaignId !== campaign.id || isPaused) return;
+  // Real-time progress via WebSocket (replaces the old 2s polling)
+  const wsProgress = useCampaignProgress(
+    isFiring && activeCampaignId === campaign.id ? campaign.id : null,
+  );
 
-    const poll = async () => {
+  useEffect(() => {
+    if (!wsProgress) return;
+    setProgress(wsProgress.progress);
+    if (wsProgress.currentTarget) setCurrentTarget(wsProgress.currentTarget);
+  }, [wsProgress, setProgress, setCurrentTarget]);
+
+  // Reconcile terminal status (completed/cancelled/failed) by refetching periodically while running.
+  useEffect(() => {
+    if (!isFiring || activeCampaignId !== campaign.id) return;
+    let cancelled = false;
+    const tick = async () => {
       try {
         const latest = await campaignService.get(campaign.id);
-        const processed = Number(latest?.sentCount ?? 0) + Number(latest?.failedCount ?? 0);
-        const total = Math.max(processed, contactsCount || totalSelectedContacts || availableContacts.length || 1);
-        const nextProgress = Math.min(100, Math.round((processed / total) * 100));
-        setProgress(nextProgress);
-
-        if (latest?.status && latest.status !== 'running') {
+        if (cancelled) return;
+        if (latest.status && latest.status !== 'running' && latest.status !== 'paused') {
           setIsFiring(false);
           setActiveCampaignId(null);
-          if (latest.status === 'completed') {
-            setProgress(100);
-          }
+          if (latest.status === 'completed') setProgress(100);
         }
       } catch {
-        // keep UI responsive even if polling fails temporarily
+        /* ignore transient errors */
       }
     };
-
-    poll().catch(() => undefined);
-    const timer = setInterval(() => {
-      poll().catch(() => undefined);
-    }, 2000);
-
+    const timer = setInterval(tick, 5000);
     return () => {
+      cancelled = true;
       clearInterval(timer);
     };
-  }, [
-    isFiring,
-    activeCampaignId,
-    campaign.id,
-    isPaused,
-    contactsCount,
-    totalSelectedContacts,
-    availableContacts.length,
-    setProgress,
-    setIsFiring,
-    setActiveCampaignId,
-  ]);
+  }, [isFiring, activeCampaignId, campaign.id, setIsFiring, setActiveCampaignId, setProgress]);
 
   // Removido para que a campanha continue mesmo ao sair da aba
   /*
@@ -430,12 +487,16 @@ const WhatsAppPreview: React.FC<{
             className="text-destructive hover:text-destructive"
             onClick={() => {
               if (isFiring && activeCampaignId === campaign.id) {
-                alert("Campanhas em andamento não podem ser deletadas. Aguarde a campanha acabar ou cancele-a primeiro.");
+                toast.error('Campanha em execução não pode ser deletada. Cancele-a primeiro.');
                 return;
               }
-              if (confirm("Tem certeza que deseja excluir esta campanha? Esta ação não pode ser desfeita.")) {
-                if (onDelete) onDelete(campaign.id);
-              }
+              toast('Excluir esta campanha?', {
+                action: {
+                  label: 'Excluir',
+                  onClick: () => { if (onDelete) onDelete(campaign.id); },
+                },
+                cancel: { label: 'Cancelar', onClick: () => undefined },
+              });
             }}
           >
             <Trash2 className="w-4 h-4 mr-2" /> Excluir
@@ -458,7 +519,7 @@ const WhatsAppPreview: React.FC<{
                 </div>
                 <div className="flex-1">
                   <p className="font-bold text-[15px] leading-tight">Contato da Campanha</p>
-                  <p className="text-[11px] text-zinc-500">visto por último hoje às 14:30</p>
+                  <p className="text-[11px] text-zinc-500">online</p>
                 </div>
                 <div className="flex gap-4">
                   <Video className="w-5 h-5 text-blue-500" />
@@ -498,7 +559,7 @@ const WhatsAppPreview: React.FC<{
                       )}
                       
                       <div className="text-[14.5px] leading-relaxed text-zinc-800 dark:text-zinc-100 whitespace-pre-wrap">
-                        {formatWhatsAppMessage(editedMessage.replace('{{nome}}', 'João'))}
+                        {formatWhatsAppMessage(editedMessage)}
                       </div>
 
                       {editedLink && (
@@ -1113,7 +1174,7 @@ const WhatsAppPreview: React.FC<{
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-xs truncate text-zinc-900 dark:text-zinc-100">Contato da Campanha</p>
-                        <p className="text-[8px] text-zinc-500">visto por último hoje às 14:30</p>
+                        <p className="text-[8px] text-zinc-500">online</p>
                       </div>
                     </div>
                     
@@ -1131,7 +1192,7 @@ const WhatsAppPreview: React.FC<{
                               </div>
                             )}
                             <div className="text-[12px] leading-snug text-zinc-800 dark:text-zinc-100 whitespace-pre-wrap">
-                              {formatWhatsAppMessage(editedMessage.replace('{{nome}}', 'João'))}
+                              {formatWhatsAppMessage(editedMessage)}
                             </div>
                             {editedLink && (
                               <div className="bg-white/40 dark:bg-black/20 rounded p-1 flex items-center gap-2 border border-white/20">
@@ -1207,30 +1268,14 @@ export const CampaignsPage: React.FC = () => {
       const created = await campaignService.create({
         name: `Nova Campanha ${campaigns.length + 1}`,
         channel: 'whatsapp',
-        segmentId: '1',
         messageContent: '',
         intervalSec: 15,
       });
       const normalized = toCampaignModel(created);
       setCampaigns((previous) => [normalized, ...previous]);
       setSelectedCampaign(normalized);
-    } catch {
-      const fallback: Campaign = {
-        id: Math.random().toString(36).slice(2, 9),
-        name: `Nova Campanha ${campaigns.length + 1}`,
-        channel: 'whatsapp',
-        status: 'draft',
-        templateId: '',
-        segmentId: '1',
-        sentCount: 0,
-        deliveredCount: 0,
-        failedCount: 0,
-        responseCount: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setCampaigns((previous) => [fallback, ...previous]);
-      setSelectedCampaign(fallback);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao criar campanha');
     }
   };
 
@@ -1256,28 +1301,27 @@ export const CampaignsPage: React.FC = () => {
         messageContent: updatedCampaign.messageContent,
         buttonsEnabled: updatedCampaign.buttonsEnabled ?? false,
         buttons: updatedCampaign.buttons ?? [],
-        mediaType: updatedCampaign.mediaType,
+        mediaType: updatedCampaign.mediaType as any,
         mediaUrl: updatedCampaign.mediaUrl,
       });
       const normalized = toCampaignModel(saved);
       setCampaigns((previous) => previous.map((campaign) => (campaign.id === normalized.id ? normalized : campaign)));
       setSelectedCampaign(normalized);
-    } catch {
-      setCampaigns((previous) =>
-        previous.map((campaign) => (campaign.id === updatedCampaign.id ? updatedCampaign : campaign)),
-      );
-      setSelectedCampaign(updatedCampaign);
+      toast.success('Campanha salva.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao salvar campanha');
     }
   };
 
   const handleDeleteCampaign = async (id: string) => {
     try {
       await campaignService.remove(id);
-    } catch {
-      // fallback local removal
+      setCampaigns((previous) => previous.filter((campaign) => campaign.id !== id));
+      setSelectedCampaign(null);
+      toast.success('Campanha excluída.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao excluir');
     }
-    setCampaigns((previous) => previous.filter((campaign) => campaign.id !== id));
-    setSelectedCampaign(null);
   };
 
   if (selectedCampaign) {
@@ -1442,12 +1486,16 @@ export const CampaignsPage: React.FC = () => {
                   onClick={(e) => {
                     e.stopPropagation();
                     if (isFiring && activeCampaignId === campaign.id) {
-                      alert("Campanhas em andamento não podem ser deletadas. Aguarde a campanha acabar ou cancele-a primeiro.");
+                      toast.error('Campanha em execução não pode ser deletada. Cancele-a primeiro.');
                       return;
                     }
-                    if (confirm("Tem certeza que deseja excluir esta campanha? Esta ação não pode ser desfeita.")) {
-                      handleDeleteCampaign(campaign.id);
-                    }
+                    toast(`Excluir "${campaign.name}"?`, {
+                      action: {
+                        label: 'Excluir',
+                        onClick: () => handleDeleteCampaign(campaign.id),
+                      },
+                      cancel: { label: 'Cancelar', onClick: () => undefined },
+                    });
                   }}
                 >
                   <Trash2 className="w-4 h-4" />

@@ -1,0 +1,493 @@
+/**
+ * Campaign Worker
+ * ─────────────────
+ * Serviço in-process responsável por disparar campanhas respeitando:
+ *  - anti-ban (quota, jitter, typing, long-pause)
+ *  - pausar/retomar/cancelar
+ *  - crash-recovery (retoma campaigns com status='running' ao iniciar o processo)
+ *  - window de horário (windowStart/windowEnd — ex: "09:00".."18:00")
+ *  - agendamento (scheduledAt no futuro → aguarda tick)
+ *  - interpolação de variáveis + spintax
+ *  - envio de mídia (image/video/audio/document)
+ *
+ * Cada campanha em execução tem um "controller" em memória com {status, cancelled}.
+ * O target nunca é removido ao cancelar — ficam pending e podem ser retomados.
+ */
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import { prisma } from '../../db/client.js';
+import { env } from '../../config/env.js';
+import { emitTo } from '../../ws/index.js';
+import { logger } from '../../lib/logger.js';
+import * as baileys from '../../providers/baileys/manager.js';
+import { checkQuota, jitterDelay, sleep } from '../../providers/baileys/anti-ban.js';
+import { interpolate } from './interpolate.js';
+
+type ControllerState = 'running' | 'pausing' | 'paused' | 'stopping';
+
+interface Controller {
+  campaignId: string;
+  state: ControllerState;
+  /** Resolved when worker loop exits */
+  done: Promise<void>;
+}
+
+const controllers = new Map<string, Controller>();
+
+/** Returns true if campaign is currently being processed by an in-memory worker. */
+export function isActive(campaignId: string): boolean {
+  return controllers.has(campaignId);
+}
+
+/** Total number of campaigns currently being processed in this node. */
+export function activeCount(): number {
+  return controllers.size;
+}
+
+/**
+ * Request a pause: worker will stop after the current target,
+ * mark campaign as 'paused', and release the controller.
+ */
+export function pauseCampaign(campaignId: string): boolean {
+  const c = controllers.get(campaignId);
+  if (!c) return false;
+  if (c.state === 'running') c.state = 'pausing';
+  return true;
+}
+
+/**
+ * Request a cancellation: worker will stop after the current target,
+ * mark campaign as 'cancelled', and release the controller.
+ */
+export function cancelCampaign(campaignId: string): boolean {
+  const c = controllers.get(campaignId);
+  if (!c) return false;
+  c.state = 'stopping';
+  return true;
+}
+
+/**
+ * Start (or resume) a campaign. If already running, returns the existing controller.
+ * Must have at least 1 pending target.
+ */
+export async function startCampaign(campaignId: string): Promise<void> {
+  if (controllers.has(campaignId)) return; // already running
+
+  const camp = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!camp) throw new Error('Campanha não encontrada');
+  if (!camp.sessionId) throw new Error('Campanha sem sessão atribuída');
+
+  const pending = await prisma.campaignTarget.count({
+    where: { campaignId, status: { in: ['pending', 'sending'] } },
+  });
+  if (pending === 0) throw new Error('Nenhum destinatário pendente para disparo');
+
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: {
+      status: 'running',
+      startedAt: camp.startedAt ?? new Date(),
+      finishedAt: null,
+    },
+  });
+
+  const controller: Controller = {
+    campaignId,
+    state: 'running',
+    done: Promise.resolve(),
+  };
+  controller.done = runLoop(controller).catch((err) => {
+    logger.error({ err, campaignId }, 'campaign worker crashed');
+  });
+
+  controllers.set(campaignId, controller);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function runLoop(controller: Controller): Promise<void> {
+  const { campaignId } = controller;
+
+  try {
+    while (controller.state === 'running') {
+      const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+      if (!campaign) break;
+
+      // Respect sending window (windowStart/windowEnd "HH:mm" — UTC by default).
+      if (!isWithinWindow(campaign.windowStart, campaign.windowEnd)) {
+        emitProgress(campaignId, { waiting: 'Fora da janela de envio — aguardando' });
+        await sleep(30_000);
+        continue;
+      }
+
+      // Claim next pending target atomically (avoids double-processing if 2 workers race).
+      const target = await claimNextTarget(campaignId);
+      if (!target) break; // no more pending targets
+
+      const phone = target.phone.replace(/\D/g, '');
+      const baseVariables = (target.variables as Record<string, unknown> | null) ?? {};
+      const variables: Record<string, unknown> = {
+        ...baseVariables,
+        nome: (baseVariables as any).nome ?? target.name ?? 'amigo(a)',
+        name: (baseVariables as any).name ?? target.name ?? 'amigo(a)',
+        primeiro_nome: firstName(target.name ?? (baseVariables as any).nome),
+        telefone: phone,
+      };
+
+      try {
+        // Session sanity: abort loop if session dropped
+        if (!baileys.get(campaign.sessionId!)) {
+          await markTargetFailed(target.id, 'Sessão desconectada');
+          await finalizeCampaign(campaignId, 'paused');
+          emitProgress(campaignId, { error: 'Sessão desconectada — campanha pausada' });
+          return;
+        }
+
+        // Respect anti-ban quota; if blocked, wait and retry (don't fail the target)
+        const quota = await checkQuota(campaign.sessionId!);
+        if (!quota.allowed) {
+          // Revert claim (pending), then wait
+          await prisma.campaignTarget.update({
+            where: { id: target.id },
+            data: { status: 'pending', claimedAt: null },
+          });
+          const waitMs = Math.min(quota.retryAfterMs ?? 60_000, 5 * 60_000);
+          emitProgress(campaignId, {
+            waiting: `Quota do anti-ban atingida (${quota.reason}) — aguardando ${Math.round(waitMs / 1000)}s`,
+          });
+          await sleep(waitMs);
+          continue;
+        }
+        if (quota.longPause) {
+          emitProgress(campaignId, { waiting: 'Pausa longa anti-ban' });
+          await sleep(env.ANTIBAN_LONG_PAUSE_MS);
+        }
+
+        // Interpolate message & optional caption
+        const text = interpolate(campaign.messageContent ?? '', variables);
+        const caption = campaign.mediaCaption
+          ? interpolate(campaign.mediaCaption, variables)
+          : text;
+
+        // Send: mídia (se houver) OU botões OU texto
+        let result: any;
+        if (campaign.mediaUrl && campaign.mediaType && campaign.mediaType !== 'none') {
+          const buffer = await loadMediaBuffer(campaign.mediaUrl);
+          result = await baileys.sendMedia(
+            campaign.sessionId!,
+            phone,
+            {
+              buffer,
+              mimetype: campaign.mediaMimetype ?? guessMime(campaign.mediaType),
+              caption: text ? caption : undefined,
+              type: campaign.mediaType as 'image' | 'video' | 'audio' | 'document',
+              filename: campaign.mediaFilename ?? undefined,
+            },
+            { applyDelay: false },
+          );
+        } else if (
+          campaign.buttonsEnabled &&
+          Array.isArray(campaign.buttonsJson) &&
+          (campaign.buttonsJson as any[]).length > 0
+        ) {
+          result = await baileys.sendButtons(
+            campaign.sessionId!,
+            phone,
+            {
+              text,
+              buttons: campaign.buttonsJson as any,
+            },
+            { applyDelay: false },
+          );
+        } else {
+          result = await baileys.sendText(campaign.sessionId!, phone, text, { applyDelay: false });
+        }
+
+        const waMessageId = result?.key?.id ?? null;
+        await prisma.campaignTarget.update({
+          where: { id: target.id },
+          data: {
+            status: 'sent',
+            processedAt: new Date(),
+            attempts: { increment: 1 },
+            waMessageId,
+            error: null,
+          },
+        });
+
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { sentCount: { increment: 1 } },
+        });
+      } catch (err: any) {
+        logger.warn({ err, campaignId, phone }, 'campaign target failed');
+        await prisma.campaignTarget.update({
+          where: { id: target.id },
+          data: {
+            status: 'failed',
+            processedAt: new Date(),
+            attempts: { increment: 1 },
+            error: String(err?.message ?? err).slice(0, 500),
+          },
+        });
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { failedCount: { increment: 1 } },
+        });
+      }
+
+      // Emit progress (counts reflect all-time, not just this run)
+      await emitCurrentProgress(campaignId, phone);
+
+      // Inter-message jitter delay
+      if (controller.state === 'running') {
+        const wait = computeJitterDelay(campaign.intervalSec, campaign.jitterPct);
+        // Also layer the Baileys' humanized delay (short extra 1-3s)
+        const antiBan = await isAntiBanEnabled(campaign.sessionId!);
+        const total = wait + (antiBan ? Math.floor(jitterDelay() / 2) : 0);
+        await interruptibleSleep(total, controller);
+      }
+    }
+
+    // Exit reasons
+    if (controller.state === 'stopping') {
+      await finalizeCampaign(campaignId, 'cancelled');
+      emitProgress(campaignId, { stopped: true });
+    } else if (controller.state === 'pausing') {
+      await finalizeCampaign(campaignId, 'paused');
+      emitProgress(campaignId, { paused: true });
+    } else {
+      // Natural end — no more pending targets
+      const remaining = await prisma.campaignTarget.count({
+        where: { campaignId, status: { in: ['pending', 'sending'] } },
+      });
+      if (remaining === 0) {
+        await finalizeCampaign(campaignId, 'completed');
+        emitProgress(campaignId, { completed: true });
+      } else {
+        await finalizeCampaign(campaignId, 'paused');
+      }
+    }
+  } finally {
+    controllers.delete(campaignId);
+  }
+}
+
+async function claimNextTarget(campaignId: string) {
+  // Atomic "claim": updateMany with LIMIT not supported in Prisma — fallback to
+  // findFirst + conditional update on (id, status). Safe enough under a single worker per campaign.
+  const next = await prisma.campaignTarget.findFirst({
+    where: { campaignId, status: 'pending' },
+    orderBy: { id: 'asc' },
+  });
+  if (!next) return null;
+
+  const claim = await prisma.campaignTarget.updateMany({
+    where: { id: next.id, status: 'pending' },
+    data: { status: 'sending', claimedAt: new Date() },
+  });
+  if (claim.count === 0) return null; // someone else beat us
+  return next;
+}
+
+async function markTargetFailed(targetId: string, message: string) {
+  await prisma.campaignTarget.update({
+    where: { id: targetId },
+    data: { status: 'pending', claimedAt: null, error: message.slice(0, 500) },
+  });
+}
+
+async function finalizeCampaign(campaignId: string, status: string) {
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: {
+      status,
+      finishedAt: status === 'completed' || status === 'cancelled' ? new Date() : undefined,
+    },
+  });
+}
+
+async function emitCurrentProgress(campaignId: string, currentTarget?: string) {
+  const [camp, counts] = await Promise.all([
+    prisma.campaign.findUnique({ where: { id: campaignId } }),
+    prisma.campaignTarget.groupBy({
+      by: ['status'],
+      where: { campaignId },
+      _count: { _all: true },
+    }),
+  ]);
+  if (!camp) return;
+
+  const total = counts.reduce((a, b) => a + (b._count?._all ?? 0), 0);
+  const sent = counts.find((c) => c.status === 'sent')?._count?._all ?? 0;
+  const failed = counts.find((c) => c.status === 'failed')?._count?._all ?? 0;
+  const processed = sent + failed;
+  const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+  emitTo(`campaign:${campaignId}`, {
+    type: 'campaign.progress',
+    campaignId,
+    progress,
+    currentTarget,
+    sent,
+    failed,
+  });
+}
+
+function emitProgress(campaignId: string, extra: Record<string, unknown>) {
+  emitTo(`campaign:${campaignId}`, {
+    type: 'campaign.progress',
+    campaignId,
+    progress: 0,
+    sent: 0,
+    failed: 0,
+    ...extra,
+  } as any);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function isAntiBanEnabled(sessionId: string): Promise<boolean> {
+  const s = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { antiBanEnabled: true } as any,
+  });
+  return (s as any)?.antiBanEnabled !== false;
+}
+
+function computeJitterDelay(intervalSec: number, jitterPct: number): number {
+  const base = Math.max(1, intervalSec) * 1000;
+  const pct = Math.min(80, Math.max(0, jitterPct)) / 100;
+  const delta = base * pct;
+  const min = Math.max(500, base - delta);
+  const max = base + delta;
+  return Math.floor(min + Math.random() * (max - min));
+}
+
+async function interruptibleSleep(ms: number, controller: Controller): Promise<void> {
+  const step = 250;
+  let waited = 0;
+  while (waited < ms && controller.state === 'running') {
+    await sleep(Math.min(step, ms - waited));
+    waited += step;
+  }
+}
+
+function isWithinWindow(startHHMM: string | null | undefined, endHHMM: string | null | undefined): boolean {
+  if (!startHHMM || !endHHMM) return true;
+  const start = parseHHMM(startHHMM);
+  const end = parseHHMM(endHHMM);
+  if (start === null || end === null) return true;
+
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  if (start === end) return true;
+  if (start < end) return cur >= start && cur < end;
+  // window crosses midnight
+  return cur >= start || cur < end;
+}
+
+function parseHHMM(value: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+function firstName(full?: string | null): string {
+  if (!full) return 'amigo(a)';
+  const t = full.trim().split(/\s+/)[0];
+  return t ? t : 'amigo(a)';
+}
+
+async function loadMediaBuffer(mediaUrl: string): Promise<Buffer> {
+  // Local uploaded file (/uploads/xxx.ext)
+  if (mediaUrl.startsWith('/uploads/')) {
+    const fileName = mediaUrl.replace(/^\/uploads\//, '');
+    const full = path.resolve(env.UPLOAD_DIR, fileName);
+    return fs.readFile(full);
+  }
+  if (/^https?:\/\//i.test(mediaUrl)) {
+    const res = await fetch(mediaUrl);
+    if (!res.ok) throw new Error(`Falha ao baixar mídia (${res.status})`);
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  }
+  // Assume local path
+  const full = path.isAbsolute(mediaUrl)
+    ? mediaUrl
+    : path.resolve(env.UPLOAD_DIR, mediaUrl);
+  return fs.readFile(full);
+}
+
+function guessMime(type: string): string {
+  switch (type) {
+    case 'image':
+      return 'image/jpeg';
+    case 'video':
+      return 'video/mp4';
+    case 'audio':
+      return 'audio/ogg';
+    case 'document':
+      return 'application/octet-stream';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot-time recovery & scheduler tick
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Called on server boot. For any campaign stuck in status='running', we reset
+ * any 'sending' targets back to 'pending' (they were claimed but never finished)
+ * and auto-resume the worker. Also picks up 'scheduled' campaigns whose
+ * scheduledAt is in the past.
+ */
+export async function recoverAndSchedule(): Promise<void> {
+  // 1. Unstick orphaned 'sending' targets
+  await prisma.campaignTarget.updateMany({
+    where: { status: 'sending' },
+    data: { status: 'pending', claimedAt: null },
+  });
+
+  // 2. Resume any 'running' campaigns
+  const running = await prisma.campaign.findMany({
+    where: { status: 'running' },
+    select: { id: true },
+  });
+  for (const r of running) {
+    try {
+      await startCampaign(r.id);
+    } catch (err) {
+      logger.warn({ err, campaignId: r.id }, 'failed to resume running campaign');
+      await prisma.campaign.update({ where: { id: r.id }, data: { status: 'paused' } }).catch(() => undefined);
+    }
+  }
+
+  // 3. Start scheduler tick (every 30s) for scheduled campaigns
+  setInterval(() => {
+    tickScheduler().catch((err) => logger.warn({ err }, 'scheduler tick failed'));
+  }, 30_000);
+}
+
+async function tickScheduler(): Promise<void> {
+  const now = new Date();
+  const due = await prisma.campaign.findMany({
+    where: { status: 'scheduled', scheduledAt: { lte: now } },
+    select: { id: true },
+  });
+  for (const d of due) {
+    if (isActive(d.id)) continue;
+    try {
+      await startCampaign(d.id);
+    } catch (err) {
+      logger.warn({ err, campaignId: d.id }, 'failed to start scheduled campaign');
+    }
+  }
+}

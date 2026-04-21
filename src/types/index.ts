@@ -32,7 +32,14 @@ export interface Segment {
   updatedAt: string;
 }
 
-export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'completed' | 'paused';
+export type CampaignStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'running'
+  | 'completed'
+  | 'paused'
+  | 'cancelled'
+  | 'failed';
 export type CampaignChannel = 'whatsapp' | 'sms';
 
 export interface CampaignButton {

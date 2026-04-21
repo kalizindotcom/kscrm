@@ -12,6 +12,7 @@ import { prisma } from './db/client.js';
 import { AppError } from './lib/errors.js';
 import { initWs } from './ws/index.js';
 import { startAllPersisted } from './providers/baileys/manager.js';
+import { recoverAndSchedule as recoverCampaigns } from './modules/campaigns/campaign-worker.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { contactsRoutes } from './modules/contacts/contacts.routes.js';
 import { sessionsRoutes } from './modules/sessions/sessions.routes.js';
@@ -103,6 +104,11 @@ async function bootstrap() {
 
   startAllPersisted().catch((err) => {
     logger.error({ err }, 'Failed to resume persisted Baileys sessions');
+  });
+
+  // Retoma campanhas em 'running' e inicia o agendador
+  recoverCampaigns().catch((err) => {
+    logger.error({ err }, 'Failed to recover campaigns');
   });
 }
 
