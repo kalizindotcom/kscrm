@@ -24,16 +24,17 @@ export async function groupsRoutes(app: FastifyInstance) {
   /**
    * Resolves a participant JID to a normalized phone JID (@s.whatsapp.net).
    * For @lid JIDs, tries to resolve via the in-memory lid→phone map built from
-   * contacts.upsert events. If unresolvable, returns null (participant is skipped).
+   * contacts.upsert events. If unresolvable, returns the raw @lid as a placeholder
+   * so the participant is still counted (but excluded from phone exports).
    */
   const resolveParticipant = (jid: string, lidToPhone: Map<string, string>): string | null => {
     const domain = jid.split('@')[1] ?? '';
-    if (domain === 'g.us') return null;
+    if (domain === 'g.us') return null; // group-level JID, always skip
 
     if (domain === 'lid') {
       const phone = lidToPhone.get(jid);
-      if (!phone) return null; // can't resolve this @lid yet
-      return `${phone}@s.whatsapp.net`;
+      if (phone) return `${phone}@s.whatsapp.net`; // resolved to real phone
+      return jid; // unresolvable @lid — keep as placeholder for counting
     }
 
     // @s.whatsapp.net — validate digit count

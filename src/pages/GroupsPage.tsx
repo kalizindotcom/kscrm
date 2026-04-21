@@ -164,6 +164,17 @@ export const GroupsPage: React.FC = () => {
       .map((jid) => {
         const domain = jid.split('@')[1] ?? '';
         if (domain === 'g.us') return null;
+
+        // @lid = WhatsApp privacy JID — show as unknown participant
+        if (domain === 'lid') {
+          return {
+            jid,
+            cleanPhone: '',
+            displayPhone: 'Membro privado',
+            isAdmin: group.admins.includes(jid),
+          };
+        }
+
         const local = jid.split('@')[0] ?? '';
         const digits = local.replace(/\D/g, '');
         if (digits.length < 8 || digits.length > 15) return null;
@@ -605,7 +616,7 @@ export const GroupsPage: React.FC = () => {
                 <>
                   Lista completa de participantes do grupo {selectedGroup.name}.{' '}
                   <span className="font-semibold">
-                    {getMemberData(selectedGroup).length} membros válidos.
+                    {getMemberData(selectedGroup).length} membros encontrados.
                   </span>
                 </>
               )}
@@ -671,7 +682,7 @@ export const GroupsPage: React.FC = () => {
                 className="bg-card border-primary/20 focus:ring-primary/40"
               />
               <p className="text-[10px] text-muted-foreground italic">
-                * Todos os {selectedGroup && getMemberData(selectedGroup).length} contatos válidos serão
+                * Todos os {selectedGroup && getMemberData(selectedGroup).filter(m => m.cleanPhone).length} contatos com telefone identificado serão
                 salvos com a tag do grupo.
               </p>
             </div>
