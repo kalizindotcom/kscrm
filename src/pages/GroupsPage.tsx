@@ -152,7 +152,7 @@ export const GroupsPage: React.FC = () => {
 
   const formatMemberPhone = (jid: string): string => {
     const domain = jid.split('@')[1] ?? '';
-    if (domain === 'lid' || domain === 'g.us') return '';
+    if (domain === 'g.us') return '';
     const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 15) return '';
     return formatBrazilPhone(digits);
@@ -163,7 +163,7 @@ export const GroupsPage: React.FC = () => {
     return allJids
       .map((jid) => {
         const domain = jid.split('@')[1] ?? '';
-        if (domain === 'lid' || domain === 'g.us') return null;
+        if (domain === 'g.us') return null;
         const local = jid.split('@')[0] ?? '';
         const digits = local.replace(/\D/g, '');
         if (digits.length < 8 || digits.length > 15) return null;

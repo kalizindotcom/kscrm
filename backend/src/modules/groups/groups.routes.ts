@@ -10,7 +10,8 @@ export async function groupsRoutes(app: FastifyInstance) {
 
   const cleanJidPhone = (jid: string): string => {
     const domain = jid.split('@')[1] ?? '';
-    if (domain === 'lid' || domain === 'g.us') return '';
+    if (domain === 'g.us') return ''; // group JIDs — skip
+    // @lid and @s.whatsapp.net both carry the phone number in the local part
     const local = jid.split('@')[0] ?? '';
     const digits = local.replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 15) return '';
@@ -35,7 +36,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     for (const g of groups) {
       const isValidMember = (jid: string) => {
         const domain = jid.split('@')[1] ?? '';
-        if (domain === 'lid' || domain === 'g.us') return false;
+        if (domain === 'g.us') return false;
         const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
         return digits.length >= 8 && digits.length <= 15;
       };
