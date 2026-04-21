@@ -38,6 +38,7 @@ type Instance = {
   sock: WASocket;
   sessionId: string;
   connecting: boolean;
+  lidToPhone: Map<string, string>; // lid JID → phone digits
 };
 
 const instances = new Map<string, Instance>();
@@ -145,7 +146,21 @@ export async function ensure(sessionId: string): Promise<WASocket> {
     emitOwnEvents: false,
   });
 
-  instances.set(sessionId, { sock, sessionId, connecting: true });
+  const lidToPhone = new Map<string, string>();
+  instances.set(sessionId, { sock, sessionId, connecting: true, lidToPhone });
+
+  // Build lid→phone map from contacts so group member @lid JIDs can be resolved
+  const indexContacts = (contacts: { id?: string; lid?: string }[]) => {
+    for (const c of contacts) {
+      if (!c.id || !c.lid) continue;
+      const domain = c.id.split('@')[1] ?? '';
+      if (domain === 'lid' || domain === 'g.us') continue;
+      const phone = normalizeDigits(c.id.split('@')[0] ?? '');
+      if (isPlausiblePhoneDigits(phone)) {
+        lidToPhone.set(c.lid, phone);
+      }
+    }
+  };
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -213,6 +228,10 @@ export async function ensure(sessionId: string): Promise<WASocket> {
       }
     }
   });
+
+  // Populate lid→phone map whenever WhatsApp sends contact info
+  sock.ev.on('contacts.upsert', (contacts) => indexContacts(contacts));
+  sock.ev.on('contacts.update', (updates) => indexContacts(updates as any[]));
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify' && type !== 'append') return;
@@ -429,6 +448,10 @@ export function get(sessionId: string): WASocket | null {
 
 export function getOwnJid(sessionId: string): string | undefined {
   return get(sessionId)?.user?.id;
+}
+
+export function getLidToPhone(sessionId: string): Map<string, string> {
+  return instances.get(sessionId)?.lidToPhone ?? new Map();
 }
 
 export async function stop(sessionId: string) {

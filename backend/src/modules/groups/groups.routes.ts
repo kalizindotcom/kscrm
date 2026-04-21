@@ -8,16 +8,41 @@ import { NotFoundError } from '../../lib/errors.js';
 export async function groupsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
+  /**
+   * Extracts a clean phone number (digits only) from a JID.
+   * @lid JIDs are opaque identifiers — their local part is NOT a phone number.
+   * Only @s.whatsapp.net JIDs carry real phone numbers in the local part.
+   */
   const cleanJidPhone = (jid: string): string => {
     const domain = jid.split('@')[1] ?? '';
-    if (domain === 'g.us') return ''; // group JIDs — skip
-    // @lid and @s.whatsapp.net both carry the phone number in the local part
-    const local = jid.split('@')[0] ?? '';
-    const digits = local.replace(/\D/g, '');
+    if (domain === 'lid' || domain === 'g.us') return ''; // not real phones
+    const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 15) return '';
     return digits;
   };
 
+  /**
+   * Resolves a participant JID to a normalized phone JID (@s.whatsapp.net).
+   * For @lid JIDs, tries to resolve via the in-memory lid→phone map built from
+   * contacts.upsert events. If unresolvable, returns null (participant is skipped).
+   */
+  const resolveParticipant = (jid: string, lidToPhone: Map<string, string>): string | null => {
+    const domain = jid.split('@')[1] ?? '';
+    if (domain === 'g.us') return null;
+
+    if (domain === 'lid') {
+      const phone = lidToPhone.get(jid);
+      if (!phone) return null; // can't resolve this @lid yet
+      return `${phone}@s.whatsapp.net`;
+    }
+
+    // @s.whatsapp.net — validate digit count
+    const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 15) return null;
+    return jid;
+  };
+
+  // ── List groups ────────────────────────────────────────────────────────────
   app.get('/api/sessions/:sessionId/groups', async (req) => {
     const { sessionId } = req.params as { sessionId: string };
     const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
@@ -25,6 +50,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     return prisma.whatsAppGroup.findMany({ where: { sessionId }, orderBy: { updatedAt: 'desc' } });
   });
 
+  // ── Global sync ────────────────────────────────────────────────────────────
   app.post('/api/sessions/:sessionId/groups/sync', async (req) => {
     const { sessionId } = req.params as { sessionId: string };
     const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
@@ -32,16 +58,18 @@ export async function groupsRoutes(app: FastifyInstance) {
 
     const groups = await baileys.fetchGroups(sessionId);
     const ownJid = baileys.getOwnJid(sessionId);
+    const lidToPhone = baileys.getLidToPhone(sessionId);
+
     const result: any[] = [];
     for (const g of groups) {
-      const isValidMember = (jid: string) => {
-        const domain = jid.split('@')[1] ?? '';
-        if (domain === 'g.us') return false;
-        const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
-        return digits.length >= 8 && digits.length <= 15;
-      };
-      const admins = g.participants.filter((p) => p.admin && isValidMember(p.id)).map((p) => p.id);
-      const members = g.participants.filter((p) => isValidMember(p.id)).map((p) => p.id);
+      // Resolve each participant JID — @lid → @s.whatsapp.net via contacts map
+      const resolvedParticipants = g.participants
+        .map((p) => ({ resolved: resolveParticipant(p.id, lidToPhone), admin: !!p.admin }))
+        .filter((p): p is { resolved: string; admin: boolean } => p.resolved !== null);
+
+      const admins = resolvedParticipants.filter((p) => p.admin).map((p) => p.resolved);
+      const members = resolvedParticipants.map((p) => p.resolved);
+
       const photo = await baileys.getProfilePictureUrl(sessionId, g.id);
       const saved = await prisma.whatsAppGroup.upsert({
         where: { sessionId_waGroupId: { sessionId, waGroupId: g.id } },
@@ -71,6 +99,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     return result;
   });
 
+  // ── Sync individual group members ──────────────────────────────────────────
   app.post('/api/groups/:id/sync-members', async (req) => {
     const { id } = req.params as { id: string };
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
@@ -80,25 +109,22 @@ export async function groupsRoutes(app: FastifyInstance) {
     const remote = groups.find((g) => g.id === group.waGroupId);
     if (!remote) throw new NotFoundError('Grupo não encontrado na sessão conectada');
 
-    const isValidMember = (jid: string) => {
-      const domain = jid.split('@')[1] ?? '';
-      if (domain === 'lid' || domain === 'g.us') return false;
-      const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
-      return digits.length >= 8 && digits.length <= 15;
-    };
-    const admins = remote.participants.filter((p) => p.admin && isValidMember(p.id)).map((p) => p.id);
-    const members = remote.participants.filter((p) => isValidMember(p.id)).map((p) => p.id);
+    const lidToPhone = baileys.getLidToPhone(group.sessionId);
+
+    const resolvedParticipants = remote.participants
+      .map((p) => ({ resolved: resolveParticipant(p.id, lidToPhone), admin: !!p.admin }))
+      .filter((p): p is { resolved: string; admin: boolean } => p.resolved !== null);
+
+    const admins = resolvedParticipants.filter((p) => p.admin).map((p) => p.resolved);
+    const members = resolvedParticipants.map((p) => p.resolved);
 
     return prisma.whatsAppGroup.update({
       where: { id: group.id },
-      data: {
-        admins,
-        members,
-        memberCount: members.length,
-      },
+      data: { admins, members, memberCount: members.length },
     });
   });
 
+  // ── Export members ─────────────────────────────────────────────────────────
   app.get('/api/groups/:id/export', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { format } = z.object({ format: z.enum(['csv', 'xlsx']).default('csv') }).parse(req.query);
@@ -106,40 +132,40 @@ export async function groupsRoutes(app: FastifyInstance) {
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
 
-    // Deduplicate all JIDs from both admins and members
     const adminSet = new Set<string>(group.admins);
-    const allJids = new Set<string>([...group.admins, ...group.members]);
+    const allJids = [...new Set([...group.admins, ...group.members])];
 
-    interface Row { phone: string; name: string; is_admin: string }
+    interface Row { phone: string; is_admin: string }
     const rows: Row[] = [];
     for (const jid of allJids) {
       const phone = cleanJidPhone(jid);
       if (!phone) continue;
-      rows.push({ phone, name: phone, is_admin: adminSet.has(jid) ? 'sim' : 'nao' });
+      rows.push({ phone, is_admin: adminSet.has(jid) ? 'sim' : 'nao' });
     }
 
     const safeFilename = group.name
       .replace(/[^\w\s-]/g, '')
       .replace(/\s+/g, '_')
-      .toLowerCase();
+      .toLowerCase() || 'grupo';
 
     if (format === 'csv') {
-      const header = 'phone,name,is_admin\n';
-      const body = rows.map((r) => `${r.phone},${r.name},${r.is_admin}`).join('\n');
+      const header = 'phone,is_admin\n';
+      const body = rows.map((r) => `${r.phone},${r.is_admin}`).join('\n');
       reply.header('Content-Type', 'text/csv; charset=utf-8');
       reply.header('Content-Disposition', `attachment; filename="${safeFilename}.csv"`);
       return header + body;
     }
 
-    // xlsx — European Excel-friendly: UTF-8 BOM + semicolon separator, .csv extension
+    // xlsx — UTF-8 BOM + semicolons = opens natively in Excel
     const bom = '\uFEFF';
-    const header = 'phone;name;is_admin\n';
-    const body = rows.map((r) => `${r.phone};${r.name};${r.is_admin}`).join('\n');
+    const header = 'phone;is_admin\n';
+    const body = rows.map((r) => `${r.phone};${r.is_admin}`).join('\n');
     reply.header('Content-Type', 'text/csv; charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="${safeFilename}_excel.csv"`);
     return bom + header + body;
   });
 
+  // ── Save members to contacts ───────────────────────────────────────────────
   app.post('/api/groups/:id/save-to-contacts', async (req) => {
     const { id } = req.params as { id: string };
     const { name } = z.object({ name: z.string().optional() }).parse(req.body);
@@ -148,17 +174,16 @@ export async function groupsRoutes(app: FastifyInstance) {
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
 
     const importName = name?.trim() || `Grupo: ${group.name}`;
-    const groupTag = group.name.replace(/[^\w\s]/g, '').trim();
+    const groupTag = group.name.replace(/[^\w\s]/g, '').trim() || group.name;
 
-    // Deduplicate all JIDs from both admins and members
-    const allJids = new Set<string>([...group.admins, ...group.members]);
+    const allJids = [...new Set([...group.admins, ...group.members])];
 
     const imp = await prisma.contactImport.create({
       data: {
         name: importName,
-        filename: importName,
+        filename: `${importName}.csv`,
         status: 'processing',
-        contactCount: allJids.size,
+        contactCount: allJids.length,
       },
     });
 
