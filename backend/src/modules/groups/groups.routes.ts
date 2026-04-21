@@ -10,37 +10,14 @@ export async function groupsRoutes(app: FastifyInstance) {
 
   /**
    * Extracts a clean phone number (digits only) from a JID.
-   * @lid JIDs are opaque identifiers — their local part is NOT a phone number.
    * Only @s.whatsapp.net JIDs carry real phone numbers in the local part.
    */
   const cleanJidPhone = (jid: string): string => {
     const domain = jid.split('@')[1] ?? '';
-    if (domain === 'lid' || domain === 'g.us') return ''; // not real phones
+    if (domain === 'lid' || domain === 'g.us') return '';
     const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 15) return '';
     return digits;
-  };
-
-  /**
-   * Resolves a participant JID to a normalized phone JID (@s.whatsapp.net).
-   * For @lid JIDs, tries to resolve via the in-memory lid→phone map built from
-   * contacts.upsert events. If unresolvable, returns the raw @lid as a placeholder
-   * so the participant is still counted (but excluded from phone exports).
-   */
-  const resolveParticipant = (jid: string, lidToPhone: Map<string, string>): string | null => {
-    const domain = jid.split('@')[1] ?? '';
-    if (domain === 'g.us') return null; // group-level JID, always skip
-
-    if (domain === 'lid') {
-      const phone = lidToPhone.get(jid);
-      if (phone) return `${phone}@s.whatsapp.net`; // resolved to real phone
-      return jid; // unresolvable @lid — keep as placeholder for counting
-    }
-
-    // @s.whatsapp.net — validate digit count
-    const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
-    if (digits.length < 8 || digits.length > 15) return null;
-    return jid;
   };
 
   // ── List groups ────────────────────────────────────────────────────────────
@@ -59,17 +36,12 @@ export async function groupsRoutes(app: FastifyInstance) {
 
     const groups = await baileys.fetchGroups(sessionId);
     const ownJid = baileys.getOwnJid(sessionId);
-    const lidToPhone = baileys.getLidToPhone(sessionId);
 
     const result: any[] = [];
     for (const g of groups) {
-      // Resolve each participant JID — @lid → @s.whatsapp.net via contacts map
-      const resolvedParticipants = g.participants
-        .map((p) => ({ resolved: resolveParticipant(p.id, lidToPhone), admin: !!p.admin }))
-        .filter((p): p is { resolved: string; admin: boolean } => p.resolved !== null);
-
-      const admins = resolvedParticipants.filter((p) => p.admin).map((p) => p.resolved);
-      const members = resolvedParticipants.map((p) => p.resolved);
+      // Participants come pre-resolved from manager.fetchGroups (phone JIDs when possible)
+      const admins = g.participants.filter((p) => p.admin).map((p) => p.id);
+      const members = g.participants.map((p) => p.id);
 
       const photo = await baileys.getProfilePictureUrl(sessionId, g.id);
       const saved = await prisma.whatsAppGroup.upsert({
@@ -110,14 +82,8 @@ export async function groupsRoutes(app: FastifyInstance) {
     const remote = groups.find((g) => g.id === group.waGroupId);
     if (!remote) throw new NotFoundError('Grupo não encontrado na sessão conectada');
 
-    const lidToPhone = baileys.getLidToPhone(group.sessionId);
-
-    const resolvedParticipants = remote.participants
-      .map((p) => ({ resolved: resolveParticipant(p.id, lidToPhone), admin: !!p.admin }))
-      .filter((p): p is { resolved: string; admin: boolean } => p.resolved !== null);
-
-    const admins = resolvedParticipants.filter((p) => p.admin).map((p) => p.resolved);
-    const members = resolvedParticipants.map((p) => p.resolved);
+    const admins = remote.participants.filter((p) => p.admin).map((p) => p.id);
+    const members = remote.participants.map((p) => p.id);
 
     return prisma.whatsAppGroup.update({
       where: { id: group.id },

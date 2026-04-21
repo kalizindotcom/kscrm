@@ -629,11 +629,182 @@ export async function sendButtons(
   }
 }
 
-export async function fetchGroups(sessionId: string) {
+export type ResolvedParticipant = {
+  id: string; // always @s.whatsapp.net when resolved, or raw @lid when unresolvable
+  admin: 'admin' | 'superadmin' | null;
+  resolvedPhone: string | null; // phone digits if resolved, null otherwise
+};
+
+export type ResolvedGroup = {
+  id: string;
+  subject: string;
+  desc: string | null;
+  participants: ResolvedParticipant[];
+};
+
+/**
+ * Attempts to resolve a @lid JID to a phone JID (@s.whatsapp.net) using multiple sources:
+ * 1. Participant object's own alternative fields (phoneNumber, jid, pn)
+ * 2. Baileys signalRepository.lidMapping store (populated from all WhatsApp network traffic)
+ * 3. In-memory lidToPhone map (populated from contacts.upsert events)
+ */
+async function resolveLidToPhone(
+  sock: WASocket,
+  lidJid: string,
+  participant: any,
+  lidToPhone: Map<string, string>,
+): Promise<string | null> {
+  // 1. Check alt fields on participant object
+  const altCandidates = [
+    participant?.phoneNumber,
+    participant?.jid,
+    participant?.pn,
+    participant?.phone,
+  ];
+  for (const cand of altCandidates) {
+    if (!cand || typeof cand !== 'string') continue;
+    const domain = cand.split('@')[1] ?? '';
+    if (domain === 'lid' || domain === 'g.us') continue;
+    const local = cand.includes('@') ? cand.split('@')[0] ?? '' : cand;
+    const digits = normalizeDigits(local);
+    if (isPlausiblePhoneDigits(digits)) return digits;
+  }
+
+  // 2. Check in-memory map (fastest)
+  const cached = lidToPhone.get(lidJid);
+  if (cached) return cached;
+
+  // 3. Check Baileys signalRepository.lidMapping (async, queries internal store)
+  try {
+    const repo: any = (sock as any).signalRepository;
+    const mapper = repo?.lidMapping ?? repo?.getLIDMappingStore?.();
+    if (mapper?.getPNForLID) {
+      const pnJid = await mapper.getPNForLID(lidJid);
+      if (pnJid && typeof pnJid === 'string') {
+        const digits = normalizeDigits(pnJid.split('@')[0] ?? '');
+        if (isPlausiblePhoneDigits(digits)) {
+          lidToPhone.set(lidJid, digits); // cache for next time
+          return digits;
+        }
+      }
+    }
+  } catch {
+    // best effort
+  }
+
+  return null;
+}
+
+export async function fetchGroups(sessionId: string): Promise<ResolvedGroup[]> {
   const sock = get(sessionId);
-  if (!sock) throw new Error('Session not connected');
+  const inst = instances.get(sessionId);
+  if (!sock || !inst) throw new Error('Session not connected');
+
   const groups = await sock.groupFetchAllParticipating();
-  return Object.values(groups);
+  const results: ResolvedGroup[] = [];
+
+  for (const g of Object.values(groups)) {
+    const resolvedParticipants: ResolvedParticipant[] = [];
+
+    // Collect unresolved @lid for batch onWhatsApp fallback
+    const unresolvedLids: { lid: string; index: number; admin: 'admin' | 'superadmin' | null }[] = [];
+
+    for (const p of g.participants) {
+      const anyP = p as any;
+      const id = p.id;
+      const admin = (p.admin ?? null) as 'admin' | 'superadmin' | null;
+      const domain = id.split('@')[1] ?? '';
+
+      if (domain === 'g.us') continue;
+
+      // Already a phone JID
+      if (domain === 's.whatsapp.net' || domain === 'c.us') {
+        const digits = normalizeDigits(id.split('@')[0] ?? '');
+        if (isPlausiblePhoneDigits(digits)) {
+          resolvedParticipants.push({
+            id: `${digits}@s.whatsapp.net`,
+            admin,
+            resolvedPhone: digits,
+          });
+        }
+        continue;
+      }
+
+      // @lid — try to resolve
+      if (domain === 'lid') {
+        const phone = await resolveLidToPhone(sock, id, anyP, inst.lidToPhone);
+        if (phone) {
+          resolvedParticipants.push({
+            id: `${phone}@s.whatsapp.net`,
+            admin,
+            resolvedPhone: phone,
+          });
+        } else {
+          const idx = resolvedParticipants.push({
+            id, // keep @lid as placeholder
+            admin,
+            resolvedPhone: null,
+          }) - 1;
+          unresolvedLids.push({ lid: id, index: idx, admin });
+        }
+        continue;
+      }
+
+      // Unknown domain — try digits from local part
+      const digits = normalizeDigits(id.split('@')[0] ?? '');
+      if (isPlausiblePhoneDigits(digits)) {
+        resolvedParticipants.push({
+          id: `${digits}@s.whatsapp.net`,
+          admin,
+          resolvedPhone: digits,
+        });
+      }
+    }
+
+    // Batch fallback: try onWhatsApp for still-unresolved lids (in chunks)
+    if (unresolvedLids.length > 0 && typeof (sock as any).onWhatsApp === 'function') {
+      const CHUNK = 50;
+      for (let i = 0; i < unresolvedLids.length; i += CHUNK) {
+        const chunk = unresolvedLids.slice(i, i + CHUNK);
+        try {
+          const lookup = await (sock as any).onWhatsApp(...chunk.map((c) => c.lid));
+          if (Array.isArray(lookup)) {
+            for (const entry of lookup) {
+              const e: any = entry;
+              const lidHit = e?.lid || e?.jid;
+              const pnHit = e?.jid && !String(e.jid).endsWith('@lid') ? e.jid : e?.pn || e?.phoneNumber;
+              if (!pnHit) continue;
+              const digits = normalizeDigits(String(pnHit).split('@')[0] ?? '');
+              if (!isPlausiblePhoneDigits(digits)) continue;
+              // Find matching entry by lid
+              const match = chunk.find(
+                (c) => c.lid === lidHit || c.lid === e?.lid || e?.jid === c.lid,
+              );
+              if (match) {
+                inst.lidToPhone.set(match.lid, digits);
+                resolvedParticipants[match.index] = {
+                  id: `${digits}@s.whatsapp.net`,
+                  admin: match.admin,
+                  resolvedPhone: digits,
+                };
+              }
+            }
+          }
+        } catch {
+          // network errors — ignore, keep placeholders
+        }
+      }
+    }
+
+    results.push({
+      id: g.id,
+      subject: g.subject ?? '',
+      desc: (g as any).desc ?? null,
+      participants: resolvedParticipants,
+    });
+  }
+
+  return results;
 }
 
 export async function getProfilePictureUrl(sessionId: string, jid: string): Promise<string | null> {
