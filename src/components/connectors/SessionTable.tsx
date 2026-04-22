@@ -16,7 +16,8 @@ import {
   CheckCircle2,
   Calendar,
   Activity,
-  ArrowRight
+  ArrowRight,
+  KeyRound
 } from 'lucide-react';
 import { 
   Table, 
@@ -211,9 +212,14 @@ export const SessionTable: React.FC<SessionTableProps> = ({
                           <Pause className="mr-2 h-4 w-4" /> Pausar Sessão
                         </DropdownMenuItem>
                       ) : (
-                        <DropdownMenuItem onSelect={() => onAction('connect', session)} className="focus:bg-slate-800 cursor-pointer">
-                          <Zap className="mr-2 h-4 w-4 text-amber-500" /> Conectar
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem onSelect={() => onAction('connect', session)} className="focus:bg-slate-800 cursor-pointer">
+                            <Zap className="mr-2 h-4 w-4 text-amber-500" /> Conectar via QR
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => onAction('pairing_code', session)} className="focus:bg-slate-800 cursor-pointer">
+                            <KeyRound className="mr-2 h-4 w-4 text-blue-400" /> Conectar por numero
+                          </DropdownMenuItem>
+                        </>
                       )}
                       <DropdownMenuItem 
                         className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400 cursor-pointer"

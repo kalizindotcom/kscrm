@@ -15,7 +15,8 @@ import {
   User,
   ExternalLink,
   Zap,
-  Tag
+  Tag,
+  KeyRound
 } from 'lucide-react';
 import { 
   Card, 
@@ -225,14 +226,24 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
             <QrCode className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Visualizar QR Code</span>
           </Button>
         ) : (
-          <Button 
-            variant="default" 
-            size="sm" 
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] h-9 shadow-lg shadow-blue-600/20 transition-all uppercase tracking-wider px-2"
-            onClick={() => onAction('connect', session)}
-          >
-            <Zap className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Conectar Agora</span>
-          </Button>
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <Button
+              variant="default"
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] h-9 shadow-lg shadow-blue-600/20 transition-all uppercase tracking-wider px-2"
+              onClick={() => onAction('connect', session)}
+            >
+              <Zap className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Via QR</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-blue-500/40 text-blue-300 hover:bg-blue-500/10 font-bold text-[10px] h-9 transition-all uppercase tracking-wider px-2"
+              onClick={() => onAction('pairing_code', session)}
+            >
+              <KeyRound className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Por numero</span>
+            </Button>
+          </div>
         )}
       </CardFooter>
     </Card>

@@ -160,15 +160,26 @@ const isTerminalCampaignStatus = (value: string): value is TerminalCampaignStatu
   value === 'completed' || value === 'cancelled' || value === 'paused' || value === 'failed';
 
 const deriveCampaignProgress = (detail: CampaignDetail) => {
+  const hasLiveStatusSnapshot = !!detail.targetsByStatus;
   const byStatus = detail.targetsByStatus ?? {};
-  const sent = Number(byStatus.sent ?? 0);
-  const delivered = Number(byStatus.delivered ?? detail.deliveredCount ?? 0);
-  const failed = Number(byStatus.failed ?? detail.failedCount ?? 0);
-  const skipped = Number(byStatus.skipped ?? 0);
-  const total =
-    Number(detail.targetTotal ?? 0) ||
-    Number(detail.totalCount ?? 0) ||
-    sent + delivered + failed + skipped;
+
+  // When targetsByStatus is present, use only that live snapshot.
+  // Campaign counters (sentCount/failedCount/deliveredCount) can be cumulative
+  // across runs and would inflate current-run progress.
+  const sent = hasLiveStatusSnapshot
+    ? Number(byStatus.sent ?? 0)
+    : Number(detail.sentCount ?? 0);
+  const delivered = hasLiveStatusSnapshot
+    ? Number(byStatus.delivered ?? 0)
+    : Number(detail.deliveredCount ?? 0);
+  const failed = hasLiveStatusSnapshot
+    ? Number(byStatus.failed ?? 0)
+    : Number(detail.failedCount ?? 0);
+  const skipped = hasLiveStatusSnapshot ? Number(byStatus.skipped ?? 0) : 0;
+
+  const total = hasLiveStatusSnapshot
+    ? Number(detail.targetTotal ?? 0)
+    : Number(detail.totalCount ?? 0) || sent + delivered + failed + skipped;
   const processed = Math.min(total, sent + delivered + failed + skipped);
   const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
 

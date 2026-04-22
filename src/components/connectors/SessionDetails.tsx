@@ -21,7 +21,8 @@ import {
   Star,
   Copy,
   ExternalLink,
-  Zap
+  Zap,
+  KeyRound
 } from 'lucide-react';
 import {
   Dialog,
@@ -163,9 +164,14 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                 <Pause className="w-3 h-3 mr-1.5" /> Pausar
               </Button>
             ) : (
-              <Button size="sm" variant="default" className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all" onClick={() => onAction('connect', session)}>
-                <Zap className="w-3 h-3 mr-1.5" /> Conectar
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="default" className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all" onClick={() => onAction('connect', session)}>
+                  <Zap className="w-3 h-3 mr-1.5" /> Via QR
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 border-blue-500/20 bg-blue-500/10 text-blue-300 text-xs font-bold hover:bg-blue-500/20 transition-all" onClick={() => onAction('pairing_code', session)}>
+                  <KeyRound className="w-3 h-3 mr-1.5" /> Por numero
+                </Button>
+              </div>
             )}
           </div>
         </DialogHeader>
@@ -343,9 +349,14 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                   ENCERRAR SESSÃƒO
                 </Button>
               ) : (
-                <Button className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20" onClick={() => onAction('connect', session)}>
-                  RECONECTAR AGORA
-                </Button>
+                <div className="flex gap-2">
+                  <Button className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20" onClick={() => onAction('connect', session)}>
+                    RECONECTAR VIA QR
+                  </Button>
+                  <Button variant="outline" className="border-blue-500/20 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 font-bold text-xs" onClick={() => onAction('pairing_code', session)}>
+                    PAREAR POR NUMERO
+                  </Button>
+                </div>
               )}
             </div>
           </div>

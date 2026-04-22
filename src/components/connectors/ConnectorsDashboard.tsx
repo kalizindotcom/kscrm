@@ -29,6 +29,7 @@ import { SessionCard } from './SessionCard';
 import { SessionTable } from './SessionTable';
 import { SessionDetails } from './SessionDetails';
 import { CreateSessionModal } from './CreateSessionModal';
+import { PairingCodeModal } from './PairingCodeModal';
 import type { Session, SessionStatus } from './types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -52,6 +53,7 @@ export const ConnectorsDashboard: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [pairingSessionId, setPairingSessionId] = useState<string | null>(null);
 
   const loadSessions = useCallback(
     async (silent = false) => {
@@ -88,10 +90,14 @@ export const ConnectorsDashboard: React.FC = () => {
   });
 
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null;
+  const pairingSession = sessions.find((session) => session.id === pairingSessionId) || null;
 
   const handleAction = async (action: string, session: Session) => {
     try {
       switch (action) {
+        case 'pairing_code':
+          setPairingSessionId(session.id);
+          return;
         case 'connect':
         case 'qr':
           await sessionService.connect(session.id);
@@ -402,6 +408,15 @@ export const ConnectorsDashboard: React.FC = () => {
       />
 
       <CreateSessionModal />
+      <PairingCodeModal
+        isOpen={!!pairingSessionId}
+        session={pairingSession}
+        onClose={() => setPairingSessionId(null)}
+        onGenerated={(id) => {
+          updateSession(id, { status: 'pairing' });
+          loadSessions(true).catch(() => undefined);
+        }}
+      />
     </div>
   );
 };
