@@ -96,6 +96,8 @@ export const ConnectorsDashboard: React.FC = () => {
     try {
       switch (action) {
         case 'pairing_code':
+          await sessionService.connect(session.id);
+          updateSession(session.id, { status: 'pairing' });
           setPairingSessionId(session.id);
           return;
         case 'connect':

@@ -42,6 +42,7 @@ type Instance = {
 };
 
 const instances = new Map<string, Instance>();
+const pairingCodeRequests = new Map<string, Promise<string>>();
 
 function normalizeDigits(value: string) {
   return value.replace(/\D/g, '');
@@ -50,6 +51,16 @@ function normalizeDigits(value: string) {
 function isPlausiblePhoneDigits(value: string) {
   const len = value.length;
   return len >= 8 && len <= 15;
+}
+
+function isTransientPairingError(error: unknown) {
+  const message = String((error as any)?.message ?? '').toLowerCase();
+  return (
+    message.includes('connection closed') ||
+    message.includes('connection terminated') ||
+    message.includes('timed out') ||
+    message.includes('not connected')
+  );
 }
 
 function extractPreferredPhoneFromMessage(m: proto.IWebMessageInfo): { phone: string; isGroup: boolean } | null {
@@ -819,10 +830,56 @@ export async function getProfilePictureUrl(sessionId: string, jid: string): Prom
 }
 
 export async function requestPairingCode(sessionId: string, phone: string): Promise<string> {
-  const sock = await ensure(sessionId);
-  const clean = phone.replace(/\D/g, '');
-  const code = await sock.requestPairingCode(clean);
-  return code;
+  const clean = normalizeDigits(phone);
+  if (!isPlausiblePhoneDigits(clean)) {
+    throw new Error('Numero invalido. Use DDI + DDD + numero.');
+  }
+
+  const inflight = pairingCodeRequests.get(sessionId);
+  if (inflight) return inflight;
+
+  const requestPromise = (async () => {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const sock = await ensure(sessionId);
+        if (sock.authState?.creds?.registered) {
+          throw new Error('Sessao ja vinculada. Recrie a sessao para parear outro numero.');
+        }
+
+        await sock.waitForSocketOpen();
+        await sleep(200);
+
+        const code = await sock.requestPairingCode(clean);
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { status: 'pairing', disconnectReason: null },
+        });
+        await writeLog(sessionId, 'info', `Codigo de pareamento gerado para ${clean}`);
+        return code;
+      } catch (error) {
+        lastError = error;
+        const retryable = isTransientPairingError(error);
+        if (!retryable || attempt >= 3) break;
+
+        logger.warn(
+          { err: error, sessionId, attempt },
+          'pairing-code transient failure, recreating socket',
+        );
+        await stop(sessionId).catch(() => undefined);
+        await sleep(400 * attempt);
+      }
+    }
+
+    logger.warn({ err: lastError, sessionId }, 'pairing-code failed');
+    throw new Error('Nao foi possivel gerar o codigo agora. Tente novamente em alguns segundos.');
+  })().finally(() => {
+    pairingCodeRequests.delete(sessionId);
+  });
+
+  pairingCodeRequests.set(sessionId, requestPromise);
+  return requestPromise;
 }
 
 export async function startAllPersisted() {
