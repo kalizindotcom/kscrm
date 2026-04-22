@@ -41,7 +41,8 @@ export function useCampaignProgress(
     if (!campaignId) return;
     const socket = getSocket();
     const room = `campaign:${campaignId}`;
-    subscribe(room);
+    const subscribeRoom = () => subscribe(room);
+    subscribeRoom();
     setProgress(null);
     setCompleted(null);
 
@@ -57,10 +58,12 @@ export function useCampaignProgress(
 
     socket.on('campaign.progress', onProgress);
     socket.on('campaign.completed', onDone);
+    socket.on('connect', subscribeRoom);
 
     return () => {
       socket.off('campaign.progress', onProgress);
       socket.off('campaign.completed', onDone);
+      socket.off('connect', subscribeRoom);
       unsubscribe(room);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

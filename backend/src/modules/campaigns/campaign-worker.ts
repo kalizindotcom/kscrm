@@ -326,6 +326,7 @@ async function finalizeCampaign(campaignId: string, status: string) {
     });
     const total = counts.reduce((a, b) => a + (b._count?._all ?? 0), 0);
     const sent = counts.find((c) => c.status === 'sent')?._count?._all ?? 0;
+    const delivered = counts.find((c) => c.status === 'delivered')?._count?._all ?? 0;
     const failed = counts.find((c) => c.status === 'failed')?._count?._all ?? 0;
     const skipped = counts.find((c) => c.status === 'skipped')?._count?._all ?? 0;
     const startedAt = updated.startedAt ?? null;
@@ -339,7 +340,7 @@ async function finalizeCampaign(campaignId: string, status: string) {
       type: 'campaign.completed',
       campaignId,
       status: status as 'completed' | 'cancelled' | 'paused' | 'failed',
-      sent,
+      sent: sent + delivered,
       failed,
       skipped,
       total,
@@ -407,8 +408,10 @@ async function emitCurrentProgress(campaignId: string, currentTarget?: string) {
 
   const total = counts.reduce((a, b) => a + (b._count?._all ?? 0), 0);
   const sent = counts.find((c) => c.status === 'sent')?._count?._all ?? 0;
+  const delivered = counts.find((c) => c.status === 'delivered')?._count?._all ?? 0;
   const failed = counts.find((c) => c.status === 'failed')?._count?._all ?? 0;
-  const processed = sent + failed;
+  const skipped = counts.find((c) => c.status === 'skipped')?._count?._all ?? 0;
+  const processed = sent + delivered + failed + skipped;
   const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
 
   emitTo(`campaign:${campaignId}`, {
@@ -416,7 +419,7 @@ async function emitCurrentProgress(campaignId: string, currentTarget?: string) {
     campaignId,
     progress,
     currentTarget,
-    sent,
+    sent: sent + delivered,
     failed,
     total,
   });

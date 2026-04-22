@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
   Plus, 
@@ -71,7 +71,7 @@ import { CampaignFiringModal } from '../components/campaigns/CampaignFiringModal
 import { CampaignCompletionModal, type CampaignCompletionStats } from '../components/campaigns/CampaignCompletionModal';
 import { CampaignHistoryTab } from '../components/campaigns/CampaignHistoryTab';
 import { CampaignStatus, CampaignChannel, Campaign, Contact, CampaignButton, MessageTemplate } from '../types';
-import { campaignService, type TargetSource } from '../services/campaignService';
+import { campaignService, type CampaignDetail, type TargetSource } from '../services/campaignService';
 import { contactService } from '../services/contactService';
 import { sessionService } from '../services/sessionService';
 import { templateService } from '../services/templateService';
@@ -154,6 +154,53 @@ const toCampaignModel = (payload: any): Campaign => ({
   updatedAt: payload.updatedAt ?? new Date().toISOString(),
 });
 
+type TerminalCampaignStatus = 'completed' | 'cancelled' | 'paused' | 'failed';
+
+const isTerminalCampaignStatus = (value: string): value is TerminalCampaignStatus =>
+  value === 'completed' || value === 'cancelled' || value === 'paused' || value === 'failed';
+
+const deriveCampaignProgress = (detail: CampaignDetail) => {
+  const byStatus = detail.targetsByStatus ?? {};
+  const sent = Number(byStatus.sent ?? 0);
+  const delivered = Number(byStatus.delivered ?? detail.deliveredCount ?? 0);
+  const failed = Number(byStatus.failed ?? detail.failedCount ?? 0);
+  const skipped = Number(byStatus.skipped ?? 0);
+  const total =
+    Number(detail.targetTotal ?? 0) ||
+    Number(detail.totalCount ?? 0) ||
+    sent + delivered + failed + skipped;
+  const processed = Math.min(total, sent + delivered + failed + skipped);
+  const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+  return {
+    sent: sent + delivered,
+    failed,
+    skipped,
+    total,
+    progress,
+  };
+};
+
+const toCompletionStats = (detail: CampaignDetail): CampaignCompletionStats | null => {
+  if (!isTerminalCampaignStatus(detail.status)) return null;
+  const progressData = deriveCampaignProgress(detail);
+  const durationMs =
+    detail.startedAt && detail.finishedAt
+      ? new Date(detail.finishedAt).getTime() - new Date(detail.startedAt).getTime()
+      : 0;
+
+  return {
+    status: detail.status,
+    sent: progressData.sent,
+    failed: progressData.failed,
+    skipped: progressData.skipped,
+    total: progressData.total,
+    durationMs,
+    startedAt: detail.startedAt ?? null,
+    finishedAt: detail.finishedAt ?? null,
+  };
+};
+
 const WhatsAppPreview: React.FC<{ 
   campaign: Campaign; 
   onBack: () => void;
@@ -218,6 +265,7 @@ const WhatsAppPreview: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const localPreviewUrlRef = useRef<string | null>(null);
+  const completionHandledKeyRef = useRef<string | null>(null);
 
   const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -258,6 +306,32 @@ const WhatsAppPreview: React.FC<{
   const onEmojiClick = (emojiData: EmojiClickData) => {
     setEditedMessage((previous) => previous + emojiData.emoji);
   };
+
+  const showCompletionSummary = useCallback(
+    async (stats: CampaignCompletionStats) => {
+      const eventKey = `${campaign.id}:${stats.status}:${stats.finishedAt ?? ''}:${stats.sent}:${stats.failed}:${stats.total}`;
+      if (completionHandledKeyRef.current === eventKey) return;
+      completionHandledKeyRef.current = eventKey;
+      setCompletionStats(stats);
+
+      if (stats.failed > 0) {
+        try {
+          const res = await campaignService.getTargets(campaign.id, {
+            status: 'failed',
+            pageSize: 100,
+          });
+          setCompletionFailed(
+            res.items.map((t) => ({ phone: t.phone, name: t.name, error: t.error })),
+          );
+        } catch {
+          setCompletionFailed([]);
+        }
+      } else {
+        setCompletionFailed([]);
+      }
+    },
+    [campaign.id],
+  );
 
   const handleSaveEdit = async () => {
     if (!onSave || isSavingEdit) return;
@@ -374,6 +448,10 @@ const WhatsAppPreview: React.FC<{
   const confirmStartCampaign = async () => {
     setIsStartingCampaign(true);
     try {
+      completionHandledKeyRef.current = null;
+      setCompletionStats(null);
+      setCompletionFailed([]);
+
       const result = await campaignService.fire(campaign.id, {
         sessionId: selectedSessionId,
         intervalSec: intervalValue,
@@ -491,10 +569,16 @@ const WhatsAppPreview: React.FC<{
     if (!wsCompleted) return;
     setIsFiring(false);
     setActiveCampaignId(null);
-    setIsPaused(false);
-    setProgress(wsCompleted.status === 'completed' ? 100 : wsCompleted.total > 0 ? Math.round(((wsCompleted.sent + wsCompleted.failed) / wsCompleted.total) * 100) : 0);
+    setIsPaused(wsCompleted.status === 'paused');
+    setProgress(
+      wsCompleted.status === 'completed'
+        ? 100
+        : wsCompleted.total > 0
+        ? Math.round(((wsCompleted.sent + wsCompleted.failed) / wsCompleted.total) * 100)
+        : 0,
+    );
     setCurrentTarget(null);
-    setCompletionStats({
+    void showCompletionSummary({
       status: wsCompleted.status,
       sent: wsCompleted.sent,
       failed: wsCompleted.failed,
@@ -504,45 +588,76 @@ const WhatsAppPreview: React.FC<{
       startedAt: wsCompleted.startedAt,
       finishedAt: wsCompleted.finishedAt,
     });
-    // Fetch failed targets sample for the modal
-    if (wsCompleted.failed > 0) {
-      campaignService
-        .getTargets(campaign.id, { status: 'failed', pageSize: 100 })
-        .then((res) =>
-          setCompletionFailed(
-            res.items.map((t) => ({ phone: t.phone, name: t.name, error: t.error })),
-          ),
-        )
-        .catch(() => setCompletionFailed([]));
-    } else {
-      setCompletionFailed([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsCompleted]);
+  }, [
+    wsCompleted,
+    setActiveCampaignId,
+    setCurrentTarget,
+    setIsFiring,
+    setIsPaused,
+    setProgress,
+    showCompletionSummary,
+  ]);
 
-  // Reconcile terminal status (completed/cancelled/failed) by refetching periodically while running.
+  // Polling fallback: keeps progress and completion modal working even if WS packets drop.
   useEffect(() => {
     if (!isFiring || activeCampaignId !== campaign.id) return;
     let cancelled = false;
+
     const tick = async () => {
       try {
         const latest = await campaignService.get(campaign.id);
         if (cancelled) return;
-        if (latest.status && latest.status !== 'running' && latest.status !== 'paused') {
+
+        const progressData = deriveCampaignProgress(latest);
+        setProgress(progressData.progress);
+
+        if (!wsProgress?.currentTarget) {
+          const sending = latest.sampleTargets?.find((target) => target.status === 'sending')?.phone;
+          const processed = Math.min(
+            progressData.total,
+            progressData.sent + progressData.failed + progressData.skipped,
+          );
+          if (sending) {
+            setCurrentTarget(sending);
+          } else if (progressData.total > 0 && processed > 0) {
+            setCurrentTarget(`${processed}/${progressData.total} processados`);
+          }
+        }
+
+        if (isTerminalCampaignStatus(latest.status)) {
           setIsFiring(false);
           setActiveCampaignId(null);
-          if (latest.status === 'completed') setProgress(100);
+          setIsPaused(latest.status === 'paused');
+          setCurrentTarget(null);
+
+          const stats = toCompletionStats(latest);
+          if (stats) {
+            void showCompletionSummary(stats);
+          }
         }
       } catch {
         /* ignore transient errors */
       }
     };
-    const timer = setInterval(tick, 5000);
+
+    void tick();
+    const timer = setInterval(tick, 1500);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [isFiring, activeCampaignId, campaign.id, setIsFiring, setActiveCampaignId, setProgress]);
+  }, [
+    isFiring,
+    activeCampaignId,
+    campaign.id,
+    setActiveCampaignId,
+    setCurrentTarget,
+    setIsFiring,
+    setIsPaused,
+    setProgress,
+    showCompletionSummary,
+    wsProgress?.currentTarget,
+  ]);
 
   // Removido para que a campanha continue mesmo ao sair da aba
   /*
@@ -1007,7 +1122,9 @@ const WhatsAppPreview: React.FC<{
             failedTargets={completionFailed}
             onRestart={async () => {
               try {
+                completionHandledKeyRef.current = null;
                 setCompletionStats(null);
+                setCompletionFailed([]);
                 // Backend's fire route auto-resets targets when the campaign is in a terminal state
                 const result = await campaignService.fire(campaign.id, {
                   sessionId: selectedSessionId || undefined,
