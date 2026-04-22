@@ -131,7 +131,7 @@ export async function pairingCode(userId: string, id: string, phone: string) {
 
 export async function pause(userId: string, id: string) {
   await assertSessionOwnership(userId, id);
-  await baileys.stop(id);
+  await baileys.stop(id, 'pause');
   await prisma.session.update({ where: { id }, data: { status: 'paused' } });
   return { ok: true };
 }
@@ -145,7 +145,7 @@ export async function resume(userId: string, id: string) {
 
 export async function terminate(userId: string, id: string) {
   await assertSessionOwnership(userId, id);
-  await baileys.stop(id);
+  await baileys.stop(id, 'terminate');
   await prisma.session.update({ where: { id }, data: { status: 'terminated' } });
   return { ok: true };
 }
@@ -164,8 +164,61 @@ export async function qr(userId: string, id: string) {
   };
 }
 
+const cleanJidPhone = (jid: string): string => {
+  const domain = jid.split('@')[1] ?? '';
+  if (domain === 'lid' || domain === 'g.us') return '';
+  const digits = (jid.split('@')[0] ?? '').replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return '';
+  return digits;
+};
+
+export async function archive(userId: string, id: string) {
+  await assertSessionOwnership(userId, id);
+  await baileys.stop(id, 'archive').catch(() => undefined);
+
+  const session = await prisma.session.findUnique({
+    where: { id },
+    select: { tags: true },
+  });
+  const tags = Array.from(new Set([...(session?.tags ?? []), 'archived']));
+
+  await prisma.session.update({
+    where: { id },
+    data: {
+      status: 'archived',
+      tags,
+      lastDisconnectedAt: new Date(),
+    },
+  });
+  return get(userId, id);
+}
+
+export async function unarchive(userId: string, id: string) {
+  await assertSessionOwnership(userId, id);
+  const session = await prisma.session.findUnique({
+    where: { id },
+    select: { tags: true },
+  });
+  const tags = (session?.tags ?? []).filter((tag) => tag !== 'archived');
+  await prisma.session.update({
+    where: { id },
+    data: {
+      status: 'disconnected',
+      tags,
+    },
+  });
+  return get(userId, id);
+}
+
 export async function syncContacts(userId: string, id: string) {
   await assertSessionOwnership(userId, id);
+  const session = await prisma.session.findUnique({
+    where: { id },
+    select: { id: true, name: true, status: true },
+  });
+  if (!session) throw new NotFoundError('SessÃ£o nÃ£o encontrada');
+  if (session.status !== 'connected') throw new ValidationError('SessÃ£o nÃ£o conectada');
+
   await prisma.session.update({
     where: { id },
     data: {
@@ -185,10 +238,99 @@ export async function syncContacts(userId: string, id: string) {
     },
   });
 
-  await prisma.session.update({
-    where: { id },
-    data: { status: 'connected' },
+  const importName = `Contatos WhatsApp - ${session.name}`;
+  const importRow = await prisma.contactImport.create({
+    data: {
+      name: importName,
+      filename: `${importName}.csv`,
+      status: 'processing',
+    },
   });
+
+  let processedCount = 0;
+  let errorCount = 0;
+  const errorPhones: string[] = [];
+
+  try {
+    const groups = await baileys.fetchGroups(id);
+    const sessionTag = `sessao:${session.name}`.trim();
+    const allJids = groups.flatMap((group) => group.participants.map((participant) => participant.id));
+    const uniquePhones = Array.from(new Set(allJids.map(cleanJidPhone).filter(Boolean)));
+
+    for (const phone of uniquePhones) {
+      try {
+        const existing = await prisma.contact.findUnique({
+          where: { phone },
+          select: { tags: true },
+        });
+        const tags = Array.from(new Set([...(existing?.tags ?? []), sessionTag]));
+        await prisma.contact.upsert({
+          where: { phone },
+          create: {
+            phone,
+            name: phone,
+            origin: `session:${id}`,
+            tags,
+          },
+          update: {
+            origin: `session:${id}`,
+            tags,
+          },
+        });
+        processedCount += 1;
+      } catch {
+        errorCount += 1;
+        if (errorPhones.length < 20) errorPhones.push(phone);
+      }
+    }
+
+    await prisma.contactImport.update({
+      where: { id: importRow.id },
+      data: {
+        status: 'completed',
+        contactCount: uniquePhones.length,
+        processedCount,
+        errorCount,
+        errorLog: errorPhones.length ? errorPhones.join(',') : null,
+      },
+    });
+
+    await prisma.sessionLog.create({
+      data: {
+        sessionId: id,
+        type: 'sync_contacts',
+        severity: errorCount > 0 ? 'warning' : 'success',
+        message:
+          errorCount > 0
+            ? `SincronizaÃ§Ã£o concluÃ­da com ${processedCount} contatos salvos e ${errorCount} falhas`
+            : `SincronizaÃ§Ã£o concluÃ­da com ${processedCount} contatos salvos`,
+        origin: 'system',
+      },
+    });
+  } catch (error: any) {
+    await prisma.contactImport.update({
+      where: { id: importRow.id },
+      data: {
+        status: 'failed',
+        errorLog: error?.message ? String(error.message) : 'Falha na sincronizaÃ§Ã£o de contatos',
+      },
+    });
+    await prisma.sessionLog.create({
+      data: {
+        sessionId: id,
+        type: 'sync_contacts',
+        severity: 'error',
+        message: error?.message ?? 'Falha na sincronizaÃ§Ã£o de contatos',
+        origin: 'system',
+      },
+    });
+    throw error;
+  } finally {
+    await prisma.session.update({
+      where: { id },
+      data: { status: 'connected' },
+    });
+  }
 
   return get(userId, id);
 }

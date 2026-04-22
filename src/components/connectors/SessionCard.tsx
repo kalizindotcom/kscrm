@@ -4,18 +4,14 @@ import {
   Smartphone, 
   Trash2, 
   Pause, 
-  Play, 
-  RefreshCcw, 
   Power, 
   QrCode, 
   Star, 
   Info,
   Copy,
-  Activity,
-  User,
   ExternalLink,
   Zap,
-  Tag,
+  Archive,
   KeyRound
 } from 'lucide-react';
 import { 
@@ -36,7 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel
 } from '@/components/ui/dropdown-menu';
-import { Progress } from '@/components/ui/progress';
 import { 
   Tooltip, 
   TooltipContent, 
@@ -65,7 +60,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
 
   const copyId = () => {
     navigator.clipboard.writeText(session.id);
-    toast.success('ID da sessão copiado!');
+    toast.success('ID da sessao copiado!');
   };
 
   return (
@@ -131,7 +126,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
                 <DropdownMenuItem onSelect={copyId} className="focus:bg-slate-800 focus:text-white cursor-pointer">
                   <Copy className="mr-2 h-4 w-4" /> Copiar ID
                 </DropdownMenuItem>
-                <DropdownMenuItem className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                <DropdownMenuItem onSelect={() => onAction('open_gateway', session)} className="focus:bg-slate-800 focus:text-white cursor-pointer">
                   <ExternalLink className="mr-2 h-4 w-4" /> Abrir no Gateway
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-800" />
@@ -144,6 +139,20 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
                       <Power className="mr-2 h-4 w-4" /> Encerrar Sessão
                     </DropdownMenuItem>
                   </>
+                )}
+                {session.status === 'paused' && (
+                  <DropdownMenuItem onSelect={() => onAction('resume', session)} className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                    <Zap className="mr-2 h-4 w-4" /> Retomar Sessão
+                  </DropdownMenuItem>
+                )}
+                {session.status === 'archived' ? (
+                  <DropdownMenuItem onSelect={() => onAction('unarchive', session)} className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                    <Archive className="mr-2 h-4 w-4" /> Desarquivar Sessão
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onSelect={() => onAction('archive', session)} className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                    <Archive className="mr-2 h-4 w-4" /> Arquivar Sessão
+                  </DropdownMenuItem>
                 )}
                 <DropdownMenuItem 
                   className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400 cursor-pointer"
@@ -160,12 +169,12 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
       <CardContent className="space-y-4 flex-grow">
         <div className="flex justify-between items-center gap-2 overflow-hidden bg-slate-950/30 p-2 rounded-lg border border-slate-800/50">
           <SessionStatusBadge status={session.status} className="shrink-0 scale-90 origin-left" />
-          <span className="text-[10px] font-mono text-slate-400 truncate tracking-tighter">{session.phoneNumber || 'Não vinculado'}</span>
+          <span className="text-[10px] font-mono text-slate-400 truncate tracking-tighter">{session.phoneNumber || 'Nao vinculado'}</span>
         </div>
 
         <div className="space-y-2">
           <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-bold text-slate-500">
-            <span>Saúde da Conexão</span>
+            <span>Saude da Conexao</span>
             <span className={getHealthColor(session.healthScore)}>{session.healthScore}%</span>
           </div>
           <div className="h-2 w-full bg-slate-800 rounded-full relative">
@@ -183,11 +192,11 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
 
         <div className="grid grid-cols-2 gap-2 text-[10px]">
           <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-800/50 min-w-0">
-            <p className="text-slate-500 uppercase tracking-tight font-bold mb-1 truncate">Reconexões</p>
+            <p className="text-slate-500 uppercase tracking-tight font-bold mb-1 truncate">Reconexoes</p>
             <p className="text-slate-200 font-mono text-sm truncate">{session.reconnectCount}</p>
           </div>
           <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-800/50 min-w-0">
-            <p className="text-slate-500 uppercase tracking-tight font-bold mb-1 truncate">Sincronizações</p>
+            <p className="text-slate-500 uppercase tracking-tight font-bold mb-1 truncate">Sincronizacoes</p>
             <p className="text-slate-200 font-mono text-sm truncate">{session.syncCount}</p>
           </div>
         </div>
@@ -225,6 +234,24 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
           >
             <QrCode className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Visualizar QR Code</span>
           </Button>
+        ) : session.status === 'paused' ? (
+          <Button
+            variant="default"
+            size="sm"
+            className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] h-9 shadow-lg shadow-amber-600/20 transition-all uppercase tracking-wider px-2"
+            onClick={() => onAction('resume', session)}
+          >
+            <Zap className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Retomar Sessão</span>
+          </Button>
+        ) : session.status === 'archived' ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full border-zinc-500/40 text-zinc-300 hover:bg-zinc-500/10 font-bold text-[10px] h-9 transition-all uppercase tracking-wider px-2"
+            onClick={() => onAction('unarchive', session)}
+          >
+            <Archive className="w-3.5 h-3.5 mr-1.5 shrink-0" /> <span className="truncate">Desarquivar</span>
+          </Button>
         ) : (
           <div className="grid grid-cols-2 gap-2 w-full">
             <Button
@@ -249,3 +276,5 @@ export const SessionCard: React.FC<SessionCardProps> = ({ session, onAction, onD
     </Card>
   );
 };
+
+

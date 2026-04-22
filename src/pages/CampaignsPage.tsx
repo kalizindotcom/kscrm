@@ -1590,7 +1590,7 @@ export const CampaignsPage: React.FC = () => {
           ? {
               ...campaign,
               status: 'running',
-              sentCount: activeWsProgress.sent + activeWsProgress.failed,
+              sentCount: activeWsProgress.sent,
               deliveredCount: activeWsProgress.sent,
               failedCount: activeWsProgress.failed,
             }
@@ -1621,7 +1621,7 @@ export const CampaignsPage: React.FC = () => {
           ? {
               ...campaign,
               status: activeWsCompleted.status,
-              sentCount: totalProcessed,
+              sentCount: activeWsCompleted.sent,
               deliveredCount: activeWsCompleted.sent,
               failedCount: activeWsCompleted.failed,
             }

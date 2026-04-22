@@ -1,10 +1,10 @@
 /**
- * SessionManager — orquestra instâncias Baileys em memória.
+ * SessionManager â€” orquestra instÃ¢ncias Baileys em memÃ³ria.
  *
- * Uma instância Baileys (WASocket) por sessão no DB. authState persiste em disco
+ * Uma instÃ¢ncia Baileys (WASocket) por sessÃ£o no DB. authState persiste em disco
  * via useMultiFileAuthState em ${BAILEYS_AUTH_DIR}/${sessionId}.
  *
- * Expõe API: ensure(sessionId), get(sessionId), stop(sessionId), remove(sessionId).
+ * ExpÃµe API: ensure(sessionId), get(sessionId), stop(sessionId), remove(sessionId).
  * Emite eventos pro WS: session.qr, session.status, session.log, message.new.
  */
 import { Boom } from '@hapi/boom';
@@ -38,11 +38,14 @@ type Instance = {
   sock: WASocket;
   sessionId: string;
   connecting: boolean;
-  lidToPhone: Map<string, string>; // lid JID → phone digits
+  lidToPhone: Map<string, string>; // lid JID â†’ phone digits
 };
+
+type ManualStopReason = 'pause' | 'terminate' | 'remove' | 'archive' | 'restart';
 
 const instances = new Map<string, Instance>();
 const pairingCodeRequests = new Map<string, Promise<string>>();
+const manualStopReasons = new Map<string, ManualStopReason>();
 
 function normalizeDigits(value: string) {
   return value.replace(/\D/g, '');
@@ -58,6 +61,8 @@ function isTransientPairingError(error: unknown) {
   return (
     message.includes('connection closed') ||
     message.includes('connection terminated') ||
+    message.includes('stream errored out') ||
+    message.includes('connection close') ||
     message.includes('timed out') ||
     message.includes('not connected')
   );
@@ -160,7 +165,7 @@ export async function ensure(sessionId: string): Promise<WASocket> {
   const lidToPhone = new Map<string, string>();
   instances.set(sessionId, { sock, sessionId, connecting: true, lidToPhone });
 
-  // Build lid→phone map from contacts so group member @lid JIDs can be resolved
+  // Build lidâ†’phone map from contacts so group member @lid JIDs can be resolved
   const indexContacts = (contacts: { id?: string; lid?: string }[]) => {
     for (const c of contacts) {
       if (!c.id || !c.lid) continue;
@@ -176,39 +181,62 @@ export async function ensure(sessionId: string): Promise<WASocket> {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    try {
+      const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
-      const dataUrl = await QRCode.toDataURL(qr);
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { qrCodeDataUrl: dataUrl, status: 'pairing' },
-      });
-      emitTo(`session:${sessionId}`, { type: 'session.qr', sessionId, dataUrl });
-      emitTo(`session:${sessionId}`, { type: 'session.status', sessionId, status: 'pairing' });
-      await writeLog(sessionId, 'info', 'QR gerado — aguardando leitura no WhatsApp');
-    }
+      if (qr) {
+        const dataUrl = await QRCode.toDataURL(qr);
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { qrCodeDataUrl: dataUrl, status: 'pairing' },
+        });
+        emitTo(`session:${sessionId}`, { type: 'session.qr', sessionId, dataUrl });
+        emitTo(`session:${sessionId}`, { type: 'session.status', sessionId, status: 'pairing' });
+        await writeLog(sessionId, 'info', 'QR gerado — aguardando leitura no WhatsApp');
+      }
 
-    if (connection === 'open') {
-      const phoneNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'connected',
-          phoneNumber: phoneNumber ?? null,
-          qrCodeDataUrl: null,
-          warmupStartedAt: (await prisma.session.findUnique({ where: { id: sessionId } }))?.warmupStartedAt ?? new Date(),
-        },
-      });
-      await updateSessionStatus(sessionId, 'connected', { phoneNumber: phoneNumber ?? '' });
-      await writeLog(sessionId, 'success', `Sessão conectada (${phoneNumber ?? 'unknown'})`);
-    }
+      if (connection === 'open') {
+        manualStopReasons.delete(sessionId);
+        const phoneNumber = sock.user?.id?.split(':')[0]?.split('@')[0];
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: {
+            status: 'connected',
+            phoneNumber: phoneNumber ?? null,
+            qrCodeDataUrl: null,
+            disconnectReason: null,
+            failureCount: 0,
+            healthScore: 100,
+            warmupStartedAt:
+              (await prisma.session.findUnique({ where: { id: sessionId } }))?.warmupStartedAt ?? new Date(),
+          },
+        });
+        await updateSessionStatus(sessionId, 'connected', { phoneNumber: phoneNumber ?? '' });
+        await writeLog(sessionId, 'success', `Sessão conectada (${phoneNumber ?? 'unknown'})`);
+        return;
+      }
 
-    if (connection === 'close') {
+      if (connection !== 'close') return;
+
+      const manualReason = manualStopReasons.get(sessionId);
+      if (manualReason) {
+        manualStopReasons.delete(sessionId);
+        instances.delete(sessionId);
+        await writeLog(sessionId, 'info', `Conexão encerrada manualmente (${manualReason})`);
+        return;
+      }
+
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const reason = DisconnectReason[statusCode] ?? 'unknown';
       const shouldReconnect =
         statusCode !== DisconnectReason.loggedOut && statusCode !== DisconnectReason.forbidden;
+
+      const current = await prisma.session.findUnique({
+        where: { id: sessionId },
+        select: { failureCount: true, healthScore: true },
+      });
+      const failureCount = (current?.failureCount ?? 0) + 1;
+      const healthScore = Math.max(0, (current?.healthScore ?? 100) - (shouldReconnect ? 10 : 30));
 
       await prisma.session.update({
         where: { id: sessionId },
@@ -216,6 +244,8 @@ export async function ensure(sessionId: string): Promise<WASocket> {
           status: shouldReconnect ? 'disconnected' : 'terminated',
           disconnectReason: reason,
           failureCount: { increment: 1 },
+          healthScore,
+          ...(shouldReconnect ? { reconnectCount: { increment: 1 } } : {}),
         },
       });
       await updateSessionStatus(sessionId, shouldReconnect ? 'disconnected' : 'terminated', {
@@ -230,17 +260,18 @@ export async function ensure(sessionId: string): Promise<WASocket> {
       instances.delete(sessionId);
 
       if (shouldReconnect) {
-        // backoff exponencial simples
-        const existing = await prisma.session.findUnique({ where: { id: sessionId } });
-        const delay = Math.min(60_000, 2_000 * Math.pow(2, existing?.failureCount ?? 0));
+        const delay = Math.min(60_000, 2_000 * Math.pow(2, Math.min(failureCount, 5)));
         setTimeout(() => {
+          if (manualStopReasons.has(sessionId)) return;
           ensure(sessionId).catch((err) => logger.error({ err, sessionId }, 'reconnect failed'));
         }, delay);
       }
+    } catch (err) {
+      logger.error({ err, sessionId }, 'connection.update handler failed');
     }
   });
 
-  // Populate lid→phone map whenever WhatsApp sends contact info
+  // Populate lidâ†’phone map whenever WhatsApp sends contact info
   sock.ev.on('contacts.upsert', (contacts) => indexContacts(contacts));
   sock.ev.on('contacts.update', (updates) => indexContacts(updates as any[]));
 
@@ -269,7 +300,7 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         let replyToContent: string | undefined;
         let replyToFromMe: boolean | undefined;
         if (contextInfo?.quotedMessage) {
-          replyToContent = extractText(contextInfo.quotedMessage) || '[mídia]';
+          replyToContent = extractText(contextInfo.quotedMessage) || '[midia]';
           // stanzaId participant - if null, the quoted message was from us
           const quotedParticipant = contextInfo.participant ?? '';
           const ownJid = sock.user?.id ?? '';
@@ -465,20 +496,25 @@ export function getLidToPhone(sessionId: string): Map<string, string> {
   return instances.get(sessionId)?.lidToPhone ?? new Map();
 }
 
-export async function stop(sessionId: string) {
+export async function stop(sessionId: string, reason: ManualStopReason = 'restart') {
   const inst = instances.get(sessionId);
-  if (!inst) return;
+  if (!inst) {
+    manualStopReasons.delete(sessionId);
+    return;
+  }
+  manualStopReasons.set(sessionId, reason);
   inst.sock.end(undefined);
   instances.delete(sessionId);
 }
 
 export async function remove(sessionId: string) {
-  await stop(sessionId);
+  await stop(sessionId, 'remove');
   const authDir = path.resolve(env.BAILEYS_AUTH_DIR, sessionId);
   await fs.rm(authDir, { recursive: true, force: true });
+  manualStopReasons.delete(sessionId);
 }
 
-/* ─────────── Envio com anti-ban ─────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Envio com anti-ban â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function jidOf(phone: string, isGroup = false) {
   const trimmed = phone.trim();
@@ -587,10 +623,10 @@ export async function sendMedia(
 }
 
 /**
- * Envio de botões via Baileys. O WhatsApp filtra buttonsMessage desde 05/2022 —
+ * Envio de botÃµes via Baileys. O WhatsApp filtra buttonsMessage desde 05/2022 â€”
  * em muitos clientes a mensagem cai como texto puro. Mantido aqui porque o
- * frontend expõe a funcionalidade e o usuário optou por Baileys puro. Em última
- * instância, se o destinatário não renderizar, a mensagem ainda chega como texto.
+ * frontend expÃµe a funcionalidade e o usuÃ¡rio optou por Baileys puro. Em Ãºltima
+ * instÃ¢ncia, se o destinatÃ¡rio nÃ£o renderizar, a mensagem ainda chega como texto.
  */
 export async function sendButtons(
   sessionId: string,
@@ -632,7 +668,7 @@ export async function sendButtons(
     if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
     return result;
   } catch {
-    // fallback estável para clientes que não renderizam/rejeitam buttonsMessage
+    // fallback estÃ¡vel para clientes que nÃ£o renderizam/rejeitam buttonsMessage
     const result = await sock.sendMessage(jid, { text: fallbackText });
     await incrementCounters(sessionId);
     if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
@@ -741,7 +777,7 @@ export async function fetchGroups(sessionId: string): Promise<ResolvedGroup[]> {
         continue;
       }
 
-      // @lid — try to resolve
+      // @lid â€” try to resolve
       if (domain === 'lid') {
         const phone = await resolveLidToPhone(sock, id, anyP, inst.lidToPhone);
         if (phone) {
@@ -761,7 +797,7 @@ export async function fetchGroups(sessionId: string): Promise<ResolvedGroup[]> {
         continue;
       }
 
-      // Unknown domain — try digits from local part
+      // Unknown domain â€” try digits from local part
       const digits = normalizeDigits(id.split('@')[0] ?? '');
       if (isPlausiblePhoneDigits(digits)) {
         resolvedParticipants.push({
@@ -802,7 +838,7 @@ export async function fetchGroups(sessionId: string): Promise<ResolvedGroup[]> {
             }
           }
         } catch {
-          // network errors — ignore, keep placeholders
+          // network errors â€” ignore, keep placeholders
         }
       }
     }
@@ -867,7 +903,7 @@ export async function requestPairingCode(sessionId: string, phone: string): Prom
           { err: error, sessionId, attempt },
           'pairing-code transient failure, recreating socket',
         );
-        await stop(sessionId).catch(() => undefined);
+        await stop(sessionId, 'restart').catch(() => undefined);
         await sleep(400 * attempt);
       }
     }
@@ -897,3 +933,4 @@ export async function startAllPersisted() {
   }
   logger.info({ count: rows.length }, 'Baileys sessions resumed');
 }
+

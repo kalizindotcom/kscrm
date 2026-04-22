@@ -73,6 +73,16 @@ export async function sessionsRoutes(app: FastifyInstance) {
     return service.terminate(req.user!.sub, id);
   });
 
+  app.post('/api/sessions/:id/archive', async (req) => {
+    const { id } = req.params as { id: string };
+    return service.archive(req.user!.sub, id);
+  });
+
+  app.post('/api/sessions/:id/unarchive', async (req) => {
+    const { id } = req.params as { id: string };
+    return service.unarchive(req.user!.sub, id);
+  });
+
   app.get('/api/sessions/:id/qr', async (req) => {
     const { id } = req.params as { id: string };
     return service.qr(req.user!.sub, id);

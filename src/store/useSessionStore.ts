@@ -11,7 +11,7 @@ interface SessionState {
   upsertSession: (session: Session) => void;
   updateSession: (id: string, session: Partial<Session>) => void;
   removeSession: (id: string) => void;
-  addSessionLog: (sessionId: string, log: Omit<SessionLog, 'id' | 'timestamp'>) => void;
+  addSessionLog: (sessionId: string, log: Omit<SessionLog, 'id' | 'timestamp' | 'sessionId'>) => void;
   selectSession: (id: string | null) => void;
   openCreateSessionModal: () => void;
   closeCreateSessionModal: () => void;
@@ -86,7 +86,6 @@ export const useSessionStore = create<SessionState>()(
       name: 'session-storage',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        sessions: state.sessions,
         selectedSessionId: state.selectedSessionId,
       }),
     },

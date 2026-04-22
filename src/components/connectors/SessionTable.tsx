@@ -4,19 +4,11 @@ import {
   Smartphone, 
   Trash2, 
   Pause, 
-  Play, 
-  RefreshCcw, 
-  Power, 
-  QrCode, 
   Star, 
   Info,
   Copy,
   Zap,
-  Tag,
-  CheckCircle2,
-  Calendar,
-  Activity,
-  ArrowRight,
+  Archive,
   KeyRound
 } from 'lucide-react';
 import { 
@@ -70,7 +62,7 @@ export const SessionTable: React.FC<SessionTableProps> = ({
 }) => {
   const copyId = (id: string) => {
     navigator.clipboard.writeText(id);
-    toast.success('ID da sessão copiado!');
+    toast.success('ID da sessao copiado!');
   };
 
   return (
@@ -86,13 +78,13 @@ export const SessionTable: React.FC<SessionTableProps> = ({
                 className="border-slate-700 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
               />
             </TableHead>
-            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Sessão</TableHead>
+            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Sessao</TableHead>
             <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Status</TableHead>
-            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Número</TableHead>
+            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Numero</TableHead>
             <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Ambiente</TableHead>
-            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Saúde</TableHead>
+            <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Saude</TableHead>
             <TableHead className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Atividade</TableHead>
-            <TableHead className="text-right text-slate-400 font-bold uppercase tracking-wider text-[10px]">Ações</TableHead>
+            <TableHead className="text-right text-slate-400 font-bold uppercase tracking-wider text-[10px]">Acoes</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -199,6 +191,9 @@ export const SessionTable: React.FC<SessionTableProps> = ({
                       <DropdownMenuItem onSelect={() => onDetails(session)} className="focus:bg-slate-800 cursor-pointer">
                         <Info className="mr-2 h-4 w-4" /> Abrir Painel
                       </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onAction('open_gateway', session)} className="focus:bg-slate-800 cursor-pointer">
+                        <Zap className="mr-2 h-4 w-4 text-blue-400" /> Abrir Gateway
+                      </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => onFavorite(session)} className="focus:bg-slate-800 cursor-pointer">
                         <Star className={cn("mr-2 h-4 w-4", session.favorite && "fill-blue-500 text-blue-500")} />
                         {session.favorite ? 'Remover Favorito' : 'Tornar Favorito'}
@@ -207,11 +202,26 @@ export const SessionTable: React.FC<SessionTableProps> = ({
                         <Copy className="mr-2 h-4 w-4" /> Copiar ID
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="bg-slate-800" />
-                      {session.status === 'connected' ? (
+                      {session.status === 'connected' && (
                         <DropdownMenuItem onSelect={() => onAction('pause', session)} className="focus:bg-slate-800 cursor-pointer">
                           <Pause className="mr-2 h-4 w-4" /> Pausar Sessão
                         </DropdownMenuItem>
+                      )}
+                      {session.status === 'paused' && (
+                        <DropdownMenuItem onSelect={() => onAction('resume', session)} className="focus:bg-slate-800 cursor-pointer">
+                          <Zap className="mr-2 h-4 w-4 text-amber-500" /> Retomar Sessão
+                        </DropdownMenuItem>
+                      )}
+                      {session.status === 'archived' ? (
+                        <DropdownMenuItem onSelect={() => onAction('unarchive', session)} className="focus:bg-slate-800 cursor-pointer">
+                          <Archive className="mr-2 h-4 w-4 text-zinc-300" /> Desarquivar Sessão
+                        </DropdownMenuItem>
                       ) : (
+                        <DropdownMenuItem onSelect={() => onAction('archive', session)} className="focus:bg-slate-800 cursor-pointer">
+                          <Archive className="mr-2 h-4 w-4 text-zinc-300" /> Arquivar Sessão
+                        </DropdownMenuItem>
+                      )}
+                      {session.status !== 'connected' && session.status !== 'paused' && session.status !== 'archived' && (
                         <>
                           <DropdownMenuItem onSelect={() => onAction('connect', session)} className="focus:bg-slate-800 cursor-pointer">
                             <Zap className="mr-2 h-4 w-4 text-amber-500" /> Conectar via QR
@@ -239,3 +249,4 @@ export const SessionTable: React.FC<SessionTableProps> = ({
     </div>
   );
 };
+

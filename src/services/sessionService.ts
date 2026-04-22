@@ -22,6 +22,8 @@ export const sessionService = {
   pause: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/pause`),
   resume: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/resume`),
   terminate: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/terminate`),
+  archive: (id: string) => apiClient.post<Session>(`/api/sessions/${id}/archive`),
+  unarchive: (id: string) => apiClient.post<Session>(`/api/sessions/${id}/unarchive`),
   getQr: (id: string) =>
     apiClient.get<{ sessionId: string; status: string; dataUrl: string | null }>(`/api/sessions/${id}/qr`),
   pairingCode: (id: string, phone: string) =>

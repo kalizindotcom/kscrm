@@ -147,7 +147,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
             <Button size="sm" variant="outline" className="h-8 bg-white/5 border-white/10 text-xs font-bold hover:bg-white/10 transition-colors" onClick={copyId}>
               <Copy className="w-3 h-3 mr-1.5" /> ID
             </Button>
-            <Button size="sm" variant="outline" className="h-8 bg-white/5 border-white/10 text-xs font-bold hover:bg-white/10 transition-colors">
+            <Button size="sm" variant="outline" className="h-8 bg-white/5 border-white/10 text-xs font-bold hover:bg-white/10 transition-colors" onClick={() => onAction('open_gateway', session)}>
               <ExternalLink className="w-3 h-3 mr-1.5" /> Gateway
             </Button>
             <Button
@@ -162,6 +162,14 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
             {session.status === 'connected' ? (
               <Button size="sm" variant="outline" className="h-8 bg-amber-500/10 border-amber-500/20 text-amber-500 text-xs font-bold hover:bg-amber-500/20 transition-all" onClick={() => onAction('pause', session)}>
                 <Pause className="w-3 h-3 mr-1.5" /> Pausar
+              </Button>
+            ) : session.status === 'paused' ? (
+              <Button size="sm" variant="default" className="h-8 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg shadow-amber-600/20 transition-all" onClick={() => onAction('resume', session)}>
+                <Play className="w-3 h-3 mr-1.5" /> Retomar
+              </Button>
+            ) : session.status === 'archived' ? (
+              <Button size="sm" variant="outline" className="h-8 border-zinc-500/20 bg-zinc-500/10 text-zinc-300 text-xs font-bold hover:bg-zinc-500/20 transition-all" onClick={() => onAction('unarchive', session)}>
+                <Tag className="w-3 h-3 mr-1.5" /> Desarquivar
               </Button>
             ) : (
               <div className="flex items-center gap-2">
@@ -223,7 +231,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                     {session.tags.map((tag, i) => (
                       <Badge key={i} className="bg-slate-800 text-slate-300 border-none hover:bg-slate-700">{tag}</Badge>
                     ))}
-                    <Button variant="ghost" size="sm" className="h-6 text-[10px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/5 font-bold">
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px] text-blue-400 hover:text-blue-300 hover:bg-blue-500/5 font-bold" onClick={() => onAction('add_tag', session)}>
                       + ADICIONAR TAG
                     </Button>
                   </div>

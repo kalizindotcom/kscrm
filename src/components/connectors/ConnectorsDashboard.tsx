@@ -35,17 +35,21 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useSessionStore } from '@/store/useSessionStore';
 import { sessionService } from '@/services/sessionService';
+import { getSocket, subscribe, unsubscribe } from '@/services/wsClient';
+import { useNavigate } from 'react-router-dom';
 
 export const ConnectorsDashboard: React.FC = () => {
   const {
     sessions,
     setSessions,
     updateSession,
+    addSessionLog,
     removeSession,
     openCreateSessionModal,
     selectedSessionId,
     selectSession,
   } = useSessionStore();
+  const navigate = useNavigate();
 
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
@@ -63,7 +67,7 @@ export const ConnectorsDashboard: React.FC = () => {
         setSessions(data);
       } catch (error: any) {
         if (!silent) {
-          toast.error(error?.message ?? 'Falha ao carregar sessões');
+          toast.error(error?.message ?? 'Falha ao carregar sessoes');
         }
       } finally {
         if (!silent) setIsLoading(false);
@@ -79,6 +83,57 @@ export const ConnectorsDashboard: React.FC = () => {
     }, 5000);
     return () => clearInterval(interval);
   }, [loadSessions]);
+
+  useEffect(() => {
+    const rooms = sessions.map((session) => `session:${session.id}`);
+    rooms.forEach((room) => subscribe(room));
+    return () => {
+      rooms.forEach((room) => unsubscribe(room));
+    };
+  }, [sessions]);
+
+  useEffect(() => {
+    const socket = getSocket();
+
+    const onStatus = (event: any) => {
+      if (!event?.sessionId) return;
+      updateSession(event.sessionId, {
+        status: event.status as SessionStatus,
+        disconnectReason: event.reason,
+        ...(event.healthScore !== undefined ? { healthScore: event.healthScore } : {}),
+        ...(event.phoneNumber !== undefined ? { phoneNumber: event.phoneNumber } : {}),
+      });
+    };
+
+    const onQr = (event: any) => {
+      if (!event?.sessionId || !event?.dataUrl) return;
+      updateSession(event.sessionId, {
+        status: 'pairing',
+        qrCodeDataUrl: event.dataUrl,
+      });
+    };
+
+    const onLog = (event: any) => {
+      if (!event?.sessionId || !event?.log) return;
+      addSessionLog(event.sessionId, {
+        type: event.log.type ?? 'system',
+        severity: event.log.severity ?? 'info',
+        message: event.log.message ?? '',
+        origin: event.log.origin ?? 'engine',
+        user: event.log.user ?? undefined,
+      });
+    };
+
+    socket.on('session.status', onStatus);
+    socket.on('session.qr', onQr);
+    socket.on('session.log', onLog);
+
+    return () => {
+      socket.off('session.status', onStatus);
+      socket.off('session.qr', onQr);
+      socket.off('session.log', onLog);
+    };
+  }, [addSessionLog, updateSession]);
 
   const filteredSessions = sessions.filter((session) => {
     const matchesSearch =
@@ -96,30 +151,46 @@ export const ConnectorsDashboard: React.FC = () => {
     try {
       switch (action) {
         case 'pairing_code':
-          await sessionService.connect(session.id);
+          if (session.status === 'archived') {
+            const unarchived = await sessionService.unarchive(session.id);
+            updateSession(session.id, { status: unarchived.status, tags: unarchived.tags });
+          }
+          if (session.status === 'paused') {
+            await sessionService.resume(session.id);
+          } else if (session.status !== 'pairing' && session.status !== 'connected') {
+            await sessionService.connect(session.id);
+          }
           updateSession(session.id, { status: 'pairing' });
           setPairingSessionId(session.id);
           return;
         case 'connect':
         case 'qr':
-          await sessionService.connect(session.id);
+          if (session.status === 'paused') {
+            await sessionService.resume(session.id);
+          } else {
+            if (session.status === 'archived') {
+              const unarchived = await sessionService.unarchive(session.id);
+              updateSession(session.id, { status: unarchived.status, tags: unarchived.tags });
+            }
+            await sessionService.connect(session.id);
+          }
           updateSession(session.id, { status: 'pairing' });
           selectSession(session.id);
-          toast.info(`Iniciando conexão para: ${session.name}`);
+          toast.info(`Iniciando conexao para: ${session.name}`);
           break;
         case 'connect_finish':
           await loadSessions(true);
-          toast.success(`Sessão ${session.name} conectada com sucesso!`);
+          toast.success(`Sessao ${session.name} conectada com sucesso!`);
           break;
         case 'pause':
           await sessionService.pause(session.id);
           updateSession(session.id, { status: 'paused' });
-          toast.warning(`Sessão ${session.name} pausada.`);
+          toast.warning(`Sessao ${session.name} pausada.`);
           break;
         case 'resume':
           await sessionService.resume(session.id);
           updateSession(session.id, { status: 'pairing' });
-          toast.info(`Retomando sessão ${session.name}.`);
+          toast.info(`Retomando sessao ${session.name}.`);
           break;
         case 'terminate':
           await sessionService.terminate(session.id);
@@ -127,8 +198,27 @@ export const ConnectorsDashboard: React.FC = () => {
             status: 'terminated',
             lastDisconnectedAt: new Date().toISOString(),
           });
-          toast.info(`Sessão ${session.name} encerrada.`);
+          toast.info(`Sessao ${session.name} encerrada.`);
           break;
+        case 'archive': {
+          const archived = await sessionService.archive(session.id);
+          updateSession(session.id, {
+            status: archived.status,
+            tags: archived.tags,
+            lastDisconnectedAt: archived.lastDisconnectedAt,
+          });
+          toast.info(`Sessao ${session.name} arquivada.`);
+          break;
+        }
+        case 'unarchive': {
+          const unarchived = await sessionService.unarchive(session.id);
+          updateSession(session.id, {
+            status: unarchived.status,
+            tags: unarchived.tags,
+          });
+          toast.success(`Sessao ${session.name} desarquivada.`);
+          break;
+        }
         case 'sync': {
           const result = await sessionService.syncWhatsApp(session.id);
           updateSession(session.id, {
@@ -136,20 +226,33 @@ export const ConnectorsDashboard: React.FC = () => {
             syncCount: result.session.syncCount,
             lastActivity: result.session.lastActivity,
           });
-          toast.success(`Sincronização concluída: ${result.groupsSynced} grupos atualizados.`);
+          toast.success(`Sincronizacao concluida: ${result.groupsSynced} grupos atualizados.`);
           break;
+        }
+        case 'open_gateway':
+          selectSession(session.id);
+          navigate('/live-view');
+          return;
+        case 'add_tag': {
+          const tag = window.prompt('Digite a nova tag da sessao:');
+          if (!tag?.trim()) return;
+          const tags = Array.from(new Set([...(session.tags ?? []), tag.trim()]));
+          const updated = await sessionService.update(session.id, { tags });
+          updateSession(session.id, { tags: updated.tags });
+          toast.success(`Tag "${tag.trim()}" adicionada.`);
+          return;
         }
         case 'delete':
           await sessionService.remove(session.id);
           removeSession(session.id);
           if (selectedSessionId === session.id) selectSession(null);
-          toast.success(`Sessão ${session.name} removida.`);
+          toast.success(`Sessao ${session.name} removida.`);
           break;
         default:
-          toast.info(`Ação ${action} executada.`);
+          toast.info(`Acao ${action} executada.`);
       }
     } catch (error: any) {
-      toast.error(error?.message ?? `Falha ao executar ação ${action}`);
+      toast.error(error?.message ?? `Falha ao executar acao ${action}`);
     }
   };
 
@@ -173,42 +276,51 @@ export const ConnectorsDashboard: React.FC = () => {
     );
   };
 
-  const syncAll = () => {
+  const syncAll = async () => {
     if (!sessions.length) return;
     setIsSyncing(true);
-    toast.promise(
-      Promise.all(sessions.map((session) => sessionService.syncContacts(session.id).catch(() => null))).then(() =>
-        loadSessions(true),
-      ),
-      {
-        loading: 'Sincronizando todas as sessões...',
-        success: () => {
-          setIsSyncing(false);
-          return 'Sincronização concluída com sucesso!';
-        },
-        error: () => {
-          setIsSyncing(false);
-          return 'Erro na sincronização';
-        },
-      },
-    );
+    try {
+      const results = await Promise.allSettled(
+        sessions.map((session) => sessionService.syncContacts(session.id)),
+      );
+      await loadSessions(true);
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      if (failed > 0) {
+        toast.warning(`Sincronização parcial: ${results.length - failed} sucesso(s) e ${failed} falha(s).`);
+      } else {
+        toast.success('Sincronização concluída com sucesso!');
+      }
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Erro na sincronização');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const pauseSelected = async () => {
     try {
       await Promise.all(selectedIds.map((id) => sessionService.pause(id)));
       await loadSessions(true);
-      toast.success(`${selectedIds.length} sessões pausadas`);
+      toast.success(`${selectedIds.length} sessoes pausadas`);
     } catch (error: any) {
-      toast.error(error?.message ?? 'Falha ao pausar sessões selecionadas');
+      toast.error(error?.message ?? 'Falha ao pausar sessoes selecionadas');
     }
   };
 
   const archiveSelected = async () => {
+    const count = selectedIds.length;
+    if (!count) return;
     try {
-      await Promise.all(selectedIds.map((id) => sessionService.update(id, { tags: ['archived'] })));
-      selectedIds.forEach((id) => updateSession(id, { status: 'archived' }));
-      toast.info(`${selectedIds.length} sessões marcadas como arquivadas`);
+      const archivedRows = await Promise.all(selectedIds.map((id) => sessionService.archive(id)));
+      archivedRows.forEach((row) => {
+        updateSession(row.id, {
+          status: row.status,
+          tags: row.tags,
+          lastDisconnectedAt: row.lastDisconnectedAt,
+        });
+      });
+      setSelectedIds([]);
+      toast.info(`${count} sessões arquivadas`);
     } catch (error: any) {
       toast.error(error?.message ?? 'Falha ao arquivar sessões selecionadas');
     }
@@ -220,9 +332,9 @@ export const ConnectorsDashboard: React.FC = () => {
       await Promise.all(selectedIds.map((id) => sessionService.remove(id)));
       selectedIds.forEach((id) => removeSession(id));
       setSelectedIds([]);
-      toast.success(`${count} sessões deletadas`);
+      toast.success(`${count} sessoes deletadas`);
     } catch (error: any) {
-      toast.error(error?.message ?? 'Falha ao deletar sessões selecionadas');
+      toast.error(error?.message ?? 'Falha ao deletar sessoes selecionadas');
     }
   };
 
@@ -237,7 +349,7 @@ export const ConnectorsDashboard: React.FC = () => {
             </Badge>
           </div>
           <p className="text-slate-400 text-xs sm:text-sm max-w-lg leading-relaxed font-medium">
-            Gerenciamento centralizado de sessões e canais de comunicação. Controle total sobre a conectividade do seu SaaS.
+            Gerenciamento centralizado de sessoes e canais de comunicacao. Controle total sobre a conectividade do seu SaaS.
           </p>
         </div>
 
@@ -256,7 +368,7 @@ export const ConnectorsDashboard: React.FC = () => {
             onClick={openCreateSessionModal}
           >
             <Plus className="w-3.5 h-3.5 mr-2" />
-            NOVA SESSÃO
+            NOVA SESSAO
           </Button>
         </div>
       </div>
@@ -267,7 +379,7 @@ export const ConnectorsDashboard: React.FC = () => {
         <div className="relative w-full md:w-96 group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
           <Input
-            placeholder="Buscar por nome, número ou ID..."
+            placeholder="Buscar por nome, numero ou ID..."
             className="pl-10 bg-slate-950/50 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-blue-500/10 h-10 rounded-xl"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -290,6 +402,8 @@ export const ConnectorsDashboard: React.FC = () => {
               <DropdownMenuCheckboxItem checked={statusFilter === 'connected'} onCheckedChange={() => setStatusFilter('connected')}>Conectados</DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem checked={statusFilter === 'disconnected'} onCheckedChange={() => setStatusFilter('disconnected')}>Desconectados</DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem checked={statusFilter === 'pairing'} onCheckedChange={() => setStatusFilter('pairing')}>Aguardando QR</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={statusFilter === 'paused'} onCheckedChange={() => setStatusFilter('paused')}>Pausados</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={statusFilter === 'archived'} onCheckedChange={() => setStatusFilter('archived')}>Arquivados</DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem checked={statusFilter === 'error'} onCheckedChange={() => setStatusFilter('error')}>Com Erro</DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -319,7 +433,7 @@ export const ConnectorsDashboard: React.FC = () => {
 
       <div className="min-h-[400px]">
         {isLoading ? (
-          <div className="flex items-center justify-center py-24 text-slate-400 text-sm">Carregando sessões...</div>
+          <div className="flex items-center justify-center py-24 text-slate-400 text-sm">Carregando sessoes...</div>
         ) : filteredSessions.length > 0 ? (
           viewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -340,8 +454,8 @@ export const ConnectorsDashboard: React.FC = () => {
                 <div className="p-4 rounded-full bg-slate-900 border border-slate-800 group-hover:border-blue-500/50 transition-all mb-4">
                   <Plus className="w-6 h-6 text-slate-500 group-hover:text-blue-500" />
                 </div>
-                <p className="text-slate-400 font-bold text-sm">Criar Nova Sessão</p>
-                <p className="text-slate-600 text-xs mt-1 text-center max-w-[150px]">Inicie um novo canal de comunicação rapidamente.</p>
+                <p className="text-slate-400 font-bold text-sm">Criar Nova Sessao</p>
+                <p className="text-slate-600 text-xs mt-1 text-center max-w-[150px]">Inicie um novo canal de comunicacao rapidamente.</p>
               </Card>
             </div>
           ) : (
@@ -361,7 +475,7 @@ export const ConnectorsDashboard: React.FC = () => {
               <Search className="w-8 h-8 text-slate-600" />
             </div>
             <h3 className="text-lg font-bold text-white">Nenhum conector encontrado</h3>
-            <p className="text-slate-500 max-w-sm text-sm">Não encontramos nenhuma sessão com os termos ou filtros aplicados. Tente ajustar sua busca.</p>
+            <p className="text-slate-500 max-w-sm text-sm">Nao encontramos nenhuma sessao com os termos ou filtros aplicados. Tente ajustar sua busca.</p>
             <Button variant="outline" className="mt-4 border-slate-800 text-slate-400" onClick={() => { setSearch(''); setStatusFilter('all'); }}>
               LIMPAR TODOS OS FILTROS
             </Button>
@@ -424,3 +538,5 @@ export const ConnectorsDashboard: React.FC = () => {
 };
 
 export default ConnectorsDashboard;
+
+

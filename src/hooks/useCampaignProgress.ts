@@ -38,7 +38,11 @@ export function useCampaignProgress(
   const [completed, setCompleted] = useState<CampaignCompletedEvent | null>(null);
 
   useEffect(() => {
-    if (!campaignId) return;
+    if (!campaignId) {
+      setProgress(null);
+      setCompleted(null);
+      return;
+    }
     const socket = getSocket();
     const room = `campaign:${campaignId}`;
     const subscribeRoom = () => subscribe(room);

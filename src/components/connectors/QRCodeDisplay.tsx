@@ -26,6 +26,12 @@ export const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({ onCancel, onSucces
   const [status, setStatus] = useState<'waiting' | 'expired' | 'success'>('waiting');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
+  useEffect(() => {
+    setTimeLeft(120);
+    setStatus('waiting');
+    setQrDataUrl(null);
+  }, [sessionId]);
+
   const loadQr = async () => {
     if (!sessionId) return;
     try {
