@@ -107,7 +107,7 @@ export const CreateSessionModal: React.FC = () => {
   };
   const handleClose = () => {
     if (form.formState.isDirty) {
-      if (confirm('VocÃª tem alteraÃ§Ãµes nÃ£o salvas. Deseja realmente sair?')) {
+      if (confirm('Você tem alterações não salvas. Deseja realmente sair?')) {
         form.reset();
         closeCreateSessionModal();
       }
@@ -125,9 +125,9 @@ export const CreateSessionModal: React.FC = () => {
               <Plus className="w-5 h-5" />
             </div>
             <div>
-              <DialogTitle className="text-xl font-bold text-white">Nova SessÃ£o</DialogTitle>
+              <DialogTitle className="text-xl font-bold text-white">Nova Sessão</DialogTitle>
               <DialogDescription className="text-slate-400 text-xs">
-                Configure um novo conector para expandir sua malha de comunicaÃ§Ã£o.
+                Configure um novo conector para expandir sua malha de comunicação.
               </DialogDescription>
             </div>
           </div>
@@ -140,7 +140,7 @@ export const CreateSessionModal: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Smartphone className="w-4 h-4 text-blue-500" />
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">InformaÃ§Ãµes BÃ¡sicas</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Informações Básicas</h3>
                   </div>
                   
                   <FormField
@@ -148,7 +148,7 @@ export const CreateSessionModal: React.FC = () => {
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs font-bold text-slate-300 uppercase">Nome da SessÃ£o *</FormLabel>
+                        <FormLabel className="text-xs font-bold text-slate-300 uppercase">Nome da Sessão *</FormLabel>
                         <FormControl>
                           <Input placeholder="Ex: WhatsApp Vendas Matriz" {...field} className="bg-slate-900 border-slate-800 focus:border-blue-500/50 text-sm h-10 rounded-xl" />
                         </FormControl>
@@ -162,9 +162,9 @@ export const CreateSessionModal: React.FC = () => {
                     name="description"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs font-bold text-slate-300 uppercase">DescriÃ§Ã£o</FormLabel>
+                        <FormLabel className="text-xs font-bold text-slate-300 uppercase">Descrição</FormLabel>
                         <FormControl>
-                          <Textarea placeholder="Descreva brevemente o propÃ³sito desta sessÃ£o..." {...field} className="bg-slate-900 border-slate-800 focus:border-blue-500/50 text-sm min-h-[100px] rounded-xl" />
+                          <Textarea placeholder="Descreva brevemente o propósito desta sessão..." {...field} className="bg-slate-900 border-slate-800 focus:border-blue-500/50 text-sm min-h-[100px] rounded-xl" />
                         </FormControl>
                         <FormMessage className="text-[10px]" />
                       </FormItem>
@@ -175,7 +175,7 @@ export const CreateSessionModal: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Tag className="w-4 h-4 text-emerald-500" />
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">OpÃ§Ãµes</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Opções</h3>
                   </div>
 
                   <FormField
@@ -184,9 +184,9 @@ export const CreateSessionModal: React.FC = () => {
                     render={({ field }) => (
                       <FormItem className="flex items-center justify-between rounded-xl border border-slate-800 p-3 bg-slate-900/30">
                         <div className="space-y-0.5">
-                          <FormLabel className="text-xs font-bold text-slate-200">Favoritar SessÃ£o</FormLabel>
+                          <FormLabel className="text-xs font-bold text-slate-200">Favoritar Sessão</FormLabel>
                           <FormDescription className="text-[10px] text-slate-500">
-                            Destacar esta sessÃ£o no topo da lista.
+                            Destacar esta sessão no topo da lista.
                           </FormDescription>
                         </div>
                         <FormControl>
@@ -214,7 +214,7 @@ export const CreateSessionModal: React.FC = () => {
                           <div className="space-y-1">
                             <FormLabel className="text-sm font-bold text-white">Gerar QR Code imediatamente?</FormLabel>
                             <FormDescription className="text-xs text-slate-400 max-w-md">
-                              Se ativo, a sessÃ£o iniciarÃ¡ no status <strong>pairing</strong> e abrirÃ¡ a tela de conexÃ£o logo apÃ³s a criaÃ§Ã£o.
+                              Se ativo, a sessão iniciará no status <strong>pairing</strong> e abrirá a tela de conexão logo após a criação.
                             </FormDescription>
                           </div>
                         </div>
@@ -236,7 +236,7 @@ export const CreateSessionModal: React.FC = () => {
             <DialogFooter className="p-6 bg-slate-900/50">
               <div className="flex items-center justify-between w-full">
                 <p className="text-[10px] text-slate-500 font-medium">
-                  * Campos obrigatÃ³rios
+                  * Campos obrigatórios
                 </p>
                 <div className="flex gap-3">
                   <Button 
@@ -260,7 +260,7 @@ export const CreateSessionModal: React.FC = () => {
                     ) : (
                       <>
                         <Plus className="w-4 h-4 mr-2" />
-                        CRIAR SESSÃƒO
+                        CRIAR SESSÃO
                       </>
                     )}
                   </Button>

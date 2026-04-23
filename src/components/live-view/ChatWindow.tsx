@@ -41,6 +41,7 @@ import {
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { apiClient } from '@/services/apiClient';
+import { resolveMediaUrl } from '@/lib/mediaUrl';
 
 interface PastePreview {
   file: File;
@@ -60,9 +61,10 @@ interface ChatWindowProps {
 
 /* ---------- Media placeholder (WhatsApp style) ---------- */
 const MediaPlaceholder: React.FC<{ type: LiveMessage['type']; mediaUrl?: string; mediaMime?: string; content?: string }> = ({
-  type, mediaUrl, mediaMime, content,
+  type, mediaUrl: rawMediaUrl, mediaMime, content,
 }) => {
   const [revealed, setRevealed] = useState(false);
+  const mediaUrl = resolveMediaUrl(rawMediaUrl);
 
   if (type === 'image') {
     if (mediaUrl && revealed) {

@@ -271,11 +271,11 @@ export async function syncContacts(userId: string, id: string) {
             userId,
             phone,
             name: phone,
-            origin: `session:${id}`,
+            origin: `import:${importRow.id}`,
             tags,
           },
           update: {
-            origin: `session:${id}`,
+            origin: `import:${importRow.id}`,
             tags,
           },
         });
