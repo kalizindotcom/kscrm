@@ -38,9 +38,7 @@ export const LiveViewPage: React.FC = () => {
     import: false,
     download: false,
     audio: false,
-    history: false,
     block: false,
-    attachment: false,
     campaign: false,
   });
 
@@ -86,7 +84,8 @@ export const LiveViewPage: React.FC = () => {
             ? { id: '', content: m.replyToContent, fromMe: m.replyToFromMe ?? false }
             : undefined,
         }));
-    } catch {
+    } catch (err) {
+      console.warn('[LiveViewPage] reloadSelectedMessages failed', err);
       return null;
     }
   };
@@ -341,6 +340,7 @@ export const LiveViewPage: React.FC = () => {
         senderName: message.senderName ?? undefined,
         senderPhone: message.senderPhone ?? undefined,
         mediaUrl: message.mediaUrl ?? undefined,
+        mediaMime: message.mediaMime ?? undefined,
         replyTo: message.replyToContent
           ? { id: '', content: message.replyToContent, fromMe: message.replyToFromMe ?? false }
           : undefined,
@@ -352,9 +352,15 @@ export const LiveViewPage: React.FC = () => {
         const msgAlreadyExists = exists.messages.some((m) => m.id === message.id);
         if (msgAlreadyExists) return prev;
         const isSelected = selectedChatIdRef.current === conversationId;
+        const mediaTypeLabels: Record<string, string> = {
+          image: '[imagem]', video: '[vídeo]', audio: '[áudio]',
+          sticker: '[figurinha]', document: '[documento]', ptt: '[áudio]',
+        };
+        const contentPreview = (message.content as string)?.trim()
+          || (message.type && message.type !== 'text' ? (mediaTypeLabels[message.type as string] ?? `[${message.type}]`) : '');
         const lastMsgPreview = exists.isGroup && message.senderName
-          ? `~${message.senderName}: ${message.content}`
-          : message.content;
+          ? `~${message.senderName}: ${contentPreview}`
+          : contentPreview;
 
         // play notification sound for inbound messages not currently open
         if (message.direction === 'inbound' && !isSelected) {

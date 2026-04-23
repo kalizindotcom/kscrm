@@ -12,7 +12,7 @@ import { prisma } from './db/client.js';
 import { AppError } from './lib/errors.js';
 import { initWs } from './ws/index.js';
 import { startAllPersisted } from './providers/baileys/manager.js';
-import { recoverAndSchedule as recoverCampaigns } from './modules/campaigns/campaign-worker.js';
+import { recoverAndSchedule as recoverCampaigns, pauseAllActive } from './modules/campaigns/campaign-worker.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { contactsRoutes } from './modules/contacts/contacts.routes.js';
 import { sessionsRoutes } from './modules/sessions/sessions.routes.js';
@@ -120,6 +120,18 @@ bootstrap().catch(async (err) => {
 
 const shutdown = async (signal: string) => {
   logger.info({ signal }, 'Shutting down gracefully');
+
+  // Pause all in-memory campaign workers and wait for them to finish the
+  // current target before the process exits (max 30s).
+  try {
+    await Promise.race([
+      pauseAllActive(),
+      new Promise<void>((resolve) => setTimeout(resolve, 30_000)),
+    ]);
+  } catch {
+    // best-effort
+  }
+
   await app.close().catch(() => undefined);
   await prisma.$disconnect().catch(() => undefined);
   process.exit(0);

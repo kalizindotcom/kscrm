@@ -123,8 +123,8 @@ export const ContactsPage: React.FC = () => {
       const result = await contactService.list({ search: q || undefined, page: p, pageSize: PAGE_SIZE });
       setContacts(result.items);
       setTotal(result.total);
-    } catch (error) {
-      console.error('Failed to load contacts', error);
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Falha ao carregar contatos.');
     } finally {
       setLoading(false);
     }
@@ -134,8 +134,8 @@ export const ContactsPage: React.FC = () => {
     try {
       const data = await contactService.listImports();
       setImports(data);
-    } catch (error) {
-      console.error('Failed to load imports', error);
+    } catch {
+      // silently ignore — background poll, avoid toast spam
     }
   };
 

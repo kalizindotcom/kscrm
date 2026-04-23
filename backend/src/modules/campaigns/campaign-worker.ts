@@ -58,6 +58,22 @@ export function pauseCampaign(campaignId: string): boolean {
 }
 
 /**
+ * Pause all active workers and wait for them to finish their current target.
+ * Used during graceful shutdown. Workers transition to 'paused' in DB.
+ */
+export async function pauseAllActive(): Promise<void> {
+  const all = [...controllers.values()];
+  if (all.length === 0) return;
+
+  logger.info({ count: all.length }, 'Graceful shutdown: pausing active campaign workers');
+  for (const c of all) {
+    if (c.state === 'running') c.state = 'pausing';
+  }
+  // Wait for all workers to reach their end-of-loop (drain)
+  await Promise.allSettled(all.map((c) => c.done));
+}
+
+/**
  * Request a cancellation: worker will stop after the current target,
  * mark campaign as 'cancelled', and release the controller.
  */

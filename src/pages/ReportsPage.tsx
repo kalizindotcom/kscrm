@@ -31,13 +31,18 @@ const ReportsPage = () => {
   const [activeTab, setActiveTab] = useState('campaigns');
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState('7d');
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
     setIsLoading(true);
-    // Simulate loading
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsLoading(false);
+    setRefreshKey((k) => k + 1);
+    // Allow child components to remount, then clear loading
+    setTimeout(() => setIsLoading(false), 800);
     toast.success('Dados atualizados com sucesso');
+  };
+
+  const handleExport = () => {
+    toast.info('Exportação disponível em cada relatório individual.');
   };
 
   return (
@@ -86,7 +91,7 @@ const ReportsPage = () => {
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Sincronizar
             </Button>
-            <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-9 text-xs">
+            <Button variant="outline" size="sm" className="flex-1 sm:flex-none h-9 text-xs" onClick={handleExport}>
               <Download className="mr-2 h-4 w-4" />
               Exportar
             </Button>
@@ -117,19 +122,19 @@ const ReportsPage = () => {
         </div>
 
         <TabsContent value="campaigns" className="space-y-4 outline-none">
-          <CampaignReport isLoading={isLoading} />
+          <CampaignReport key={refreshKey} isLoading={isLoading} dateRange={dateRange} />
         </TabsContent>
 
         <TabsContent value="contacts" className="space-y-4 outline-none">
-          <ContactReport isLoading={isLoading} />
+          <ContactReport key={refreshKey} isLoading={isLoading} dateRange={dateRange} />
         </TabsContent>
 
         <TabsContent value="connectors" className="space-y-4 outline-none">
-          <ConnectorReport isLoading={isLoading} />
+          <ConnectorReport key={refreshKey} isLoading={isLoading} dateRange={dateRange} />
         </TabsContent>
 
         <TabsContent value="groups" className="space-y-4 outline-none">
-          <GroupReport isLoading={isLoading} />
+          <GroupReport key={refreshKey} isLoading={isLoading} dateRange={dateRange} />
         </TabsContent>
       </Tabs>
     </div>

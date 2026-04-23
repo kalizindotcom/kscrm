@@ -3,6 +3,31 @@ import { Server as IOServer, type Socket } from 'socket.io';
 import { verifyAccess } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
+import { prisma } from '../db/client.js';
+
+async function userOwnsRoom(userId: string, room: string): Promise<boolean> {
+  const m = /^(session|campaign|conversation):([A-Za-z0-9_-]+)$/.exec(room);
+  if (!m) return false;
+  const [, kind, id] = m;
+  try {
+    if (kind === 'session') {
+      return !!(await prisma.session.findFirst({ where: { id, userId }, select: { id: true } }));
+    }
+    if (kind === 'campaign') {
+      return !!(await prisma.campaign.findFirst({ where: { id, userId }, select: { id: true } }));
+    }
+    if (kind === 'conversation') {
+      const c = await prisma.conversation.findFirst({
+        where: { id, session: { userId } },
+        select: { id: true },
+      });
+      return !!c;
+    }
+  } catch (err) {
+    logger.warn({ err, room, userId }, 'ws ownership check failed');
+  }
+  return false;
+}
 
 export type WsEvent =
   | { type: 'session.qr'; sessionId: string; dataUrl: string }
@@ -40,12 +65,12 @@ export function initWs(server: HttpServer) {
 
     socket.join(`user:${user.sub}`);
 
-    socket.on('subscribe', (room: string) => {
+    socket.on('subscribe', async (room: string) => {
       if (typeof room !== 'string') return;
-      // Rooms permitidas: session:ID, campaign:ID, conversation:ID
-      if (/^(session|campaign|conversation):[A-Za-z0-9_-]+$/.test(room)) {
-        socket.join(room);
-      }
+      if (!/^(session|campaign|conversation):[A-Za-z0-9_-]+$/.test(room)) return;
+      const ok = await userOwnsRoom(user.sub, room);
+      if (ok) socket.join(room);
+      else logger.debug({ userId: user.sub, room }, 'ws subscribe denied');
     });
 
     socket.on('unsubscribe', (room: string) => {

@@ -28,12 +28,12 @@ export async function reportsRoutes(app: FastifyInstance) {
     const phones = phonesInScope.map((row) => row.phone);
 
     const [contactsTotal, contactsOptIn, campaigns, sessions, messagesSent, messagesRead] = await Promise.all([
-      sessionId ? Promise.resolve(phones.length) : prisma.contact.count(),
+      sessionId ? Promise.resolve(phones.length) : prisma.contact.count({ where: { userId } }),
       sessionId
         ? phones.length
-          ? prisma.contact.count({ where: { phone: { in: phones }, optIn: 'granted' } })
+          ? prisma.contact.count({ where: { userId, phone: { in: phones }, optIn: 'granted' } })
           : Promise.resolve(0)
-        : prisma.contact.count({ where: { optIn: 'granted' } }),
+        : prisma.contact.count({ where: { userId, optIn: 'granted' } }),
       prisma.campaign.count({ where: { userId, ...(sessionId ? { sessionId } : {}) } }),
       Promise.resolve(sessionIds.length),
       sessionIds.length
@@ -82,12 +82,13 @@ export async function reportsRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get('/api/reports/contacts', async () => {
+  app.get('/api/reports/contacts', async (req) => {
+    const userId = req.user!.sub;
     const [total, active, inactive, pending] = await Promise.all([
-      prisma.contact.count(),
-      prisma.contact.count({ where: { status: 'active' } }),
-      prisma.contact.count({ where: { status: 'inactive' } }),
-      prisma.contact.count({ where: { status: 'pending' } }),
+      prisma.contact.count({ where: { userId } }),
+      prisma.contact.count({ where: { userId, status: 'active' } }),
+      prisma.contact.count({ where: { userId, status: 'inactive' } }),
+      prisma.contact.count({ where: { userId, status: 'pending' } }),
     ]);
     return { total, active, inactive, pending };
   });

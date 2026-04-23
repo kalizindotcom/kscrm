@@ -285,7 +285,9 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         const isGroup = identity.isGroup;
         const phone = identity.phone;
         const content = extractText(m.message);
-        if (!content.trim()) continue;
+        const msgType = detectType(m.message);
+        const hasMedia = msgType !== 'text' && msgType !== 'buttons' && msgType !== 'list';
+        if (!content.trim() && !hasMedia) continue;
         const direction = m.key.fromMe ? 'outbound' : 'inbound';
 
         // extract quoted/reply info
@@ -342,6 +344,12 @@ export async function ensure(sessionId: string): Promise<WASocket> {
           ? (groupContactName ?? phone)
           : (maybeName ?? phone);
 
+        const mediaLabels: Record<string, string> = {
+          image: '[imagem]', video: '[vídeo]', audio: '[áudio]',
+          sticker: '[figurinha]', document: '[documento]', ptt: '[áudio]',
+        };
+        const lastMessagePreview = content.trim() || (hasMedia ? (mediaLabels[msgType] ?? `[${msgType}]`) : '');
+
         // upsert conversation
         const conv = await prisma.conversation.upsert({
           where: { sessionId_phone: { sessionId, phone } },
@@ -349,13 +357,13 @@ export async function ensure(sessionId: string): Promise<WASocket> {
             sessionId,
             phone,
             contactName: resolvedName,
-            lastMessage: content,
+            lastMessage: lastMessagePreview,
             unreadCount: m.key.fromMe ? 0 : 1,
             isGroup,
             status: 'open',
           },
           update: {
-            lastMessage: content,
+            lastMessage: lastMessagePreview,
             unreadCount: m.key.fromMe ? undefined : { increment: 1 },
             contactName: isGroup ? (groupContactName ?? undefined) : (maybeName ?? undefined),
           },
@@ -365,6 +373,16 @@ export async function ensure(sessionId: string): Promise<WASocket> {
           const existing = await prisma.message.findUnique({ where: { waMessageId } });
           if (existing) continue;
         }
+
+        // extract mediaMime for media messages
+        const mediaMime: string | undefined =
+          (m.message?.imageMessage?.mimetype) ??
+          (m.message?.videoMessage?.mimetype) ??
+          (m.message?.audioMessage?.mimetype) ??
+          (m.message?.documentMessage?.mimetype) ??
+          (m.message?.stickerMessage?.mimetype) ??
+          (m.message?.ptvMessage?.mimetype) ??
+          undefined;
 
         const saved = await prisma.message.create({
           data: {
@@ -378,6 +396,7 @@ export async function ensure(sessionId: string): Promise<WASocket> {
             ...(senderPhone ? { senderPhone } : {}),
             ...(senderName ? { senderName } : {}),
             ...(replyToContent ? { replyToContent, replyToFromMe: replyToFromMe ?? false } : {}),
+            ...(mediaMime ? { mediaMime } : {}),
           } as any,
         });
 
@@ -398,6 +417,7 @@ export async function ensure(sessionId: string): Promise<WASocket> {
                 const mediaUrl = `/uploads/media/${fileName}`;
                 await prisma.message.update({ where: { id: saved.id }, data: { mediaUrl } });
                 (saved as any).mediaUrl = mediaUrl;
+                if (mediaMime) (saved as any).mediaMime = mediaMime;
               }
             }
           } catch (mediaErr) {

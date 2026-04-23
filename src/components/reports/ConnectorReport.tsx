@@ -40,7 +40,7 @@ import { toast } from 'sonner';
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-export const ConnectorReport = ({ isLoading: globalLoading }: { isLoading: boolean }) => {
+export const ConnectorReport = ({ isLoading: globalLoading, dateRange }: { isLoading: boolean; dateRange?: string }) => {
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDetailOpen, setIsDetailOpen] = useState(false);

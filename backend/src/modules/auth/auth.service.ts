@@ -42,7 +42,7 @@ export async function refresh(refreshToken: string) {
     throw new UnauthorizedError('Refresh token inválido');
   }
   const record = await prisma.refreshToken.findUnique({ where: { token: refreshToken } });
-  if (!record || record.revokedAt) throw new UnauthorizedError('Refresh token revogado');
+  if (!record || record.revokedAt || record.expiresAt < new Date()) throw new UnauthorizedError('Refresh token revogado');
 
   const newToken = signAccessToken({ sub: payload.sub, email: payload.email, role: payload.role });
   return { token: newToken };

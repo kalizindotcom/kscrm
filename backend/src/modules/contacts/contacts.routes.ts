@@ -13,9 +13,7 @@ const createSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-// Header labels that indicate a CSV column is a phone number
 const PHONE_LABELS = new Set(['phone', 'telefone', 'celular', 'fone']);
-// Header labels that indicate a CSV column is a name
 const NAME_LABELS = new Set(['name', 'nome']);
 
 function detectHeader(firstRow: string[]): boolean {
@@ -36,21 +34,27 @@ function findColumnIndexes(headerRow: string[]): { phoneIdx: number; nameIdx: nu
   return { phoneIdx, nameIdx };
 }
 
+function normalizePhone(raw: string): string {
+  return raw.replace(/\D/g, '');
+}
+
 export async function contactsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
   // ── List ─────────────────────────────────────────────────────────────────
   app.get('/api/contacts', async (req) => {
+    const userId = req.user!.sub;
     const { search, status, page, pageSize } = z
       .object({
         search: z.string().optional(),
         status: z.enum(['active', 'inactive', 'pending']).optional(),
         page: z.coerce.number().default(1),
-        pageSize: z.coerce.number().default(50),
+        pageSize: z.coerce.number().min(1).max(500).default(50),
       })
       .parse(req.query);
 
     const where: any = {
+      userId,
       ...(status ? { status } : {}),
       ...(search
         ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] }
@@ -72,52 +76,57 @@ export async function contactsRoutes(app: FastifyInstance) {
 
   // ── Create ────────────────────────────────────────────────────────────────
   app.post('/api/contacts', async (req) => {
+    const userId = req.user!.sub;
     const body = createSchema.parse(req.body);
-    return prisma.contact.create({ data: body });
+    return prisma.contact.create({ data: { ...body, phone: normalizePhone(body.phone), userId } });
   });
 
-  // ── Bulk delete by IDs (static path — must come before /:id) ───────────────
+  // ── Bulk delete by IDs ───────────────────────────────────────────────────
   app.post('/api/contacts/bulk-delete', async (req, reply) => {
+    const userId = req.user!.sub;
     const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
-    await prisma.contact.deleteMany({ where: { id: { in: ids } } });
-    return reply.send({ ok: true, deleted: ids.length });
+    const result = await prisma.contact.deleteMany({ where: { id: { in: ids }, userId } });
+    return reply.send({ ok: true, deleted: result.count });
   });
 
-  // ── Delete ALL contacts (static path — must come before /:id) ────────────
+  // ── Delete ALL contacts (of this user) ───────────────────────────────────
   app.delete('/api/contacts', async (req, reply) => {
+    const userId = req.user!.sub;
     const { search } = z.object({ search: z.string().optional() }).parse(req.query);
-    const where: any = search
-      ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] }
-      : {};
+    const where: any = { userId };
+    if (search) {
+      where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }];
+    }
     const result = await prisma.contact.deleteMany({ where });
     return reply.send({ ok: true, deleted: result.count });
   });
 
-  // ── Import history list (static path — must come before /:id) ────────────
-  app.get('/api/contacts/imports', async () => {
-    return prisma.contactImport.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+  // ── Import history list ──────────────────────────────────────────────────
+  app.get('/api/contacts/imports', async (req) => {
+    const userId = req.user!.sub;
+    return prisma.contactImport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 100 });
   });
 
   // ── Delete import and all its contacts ───────────────────────────────────
   app.delete('/api/contacts/imports/:id', async (req, reply) => {
+    const userId = req.user!.sub;
     const { id } = req.params as { id: string };
-    const imp = await prisma.contactImport.findUnique({ where: { id } });
+    const imp = await prisma.contactImport.findFirst({ where: { id, userId } });
     if (!imp) return reply.status(404).send({ error: 'Importação não encontrada' });
-    // Delete all contacts that came from this import
-    await prisma.contact.deleteMany({ where: { origin: { startsWith: `import:${id}` } } });
-    // Delete the import record
+    await prisma.contact.deleteMany({ where: { userId, origin: { startsWith: `import:${id}` } } });
     await prisma.contactImport.delete({ where: { id } });
     return reply.send({ ok: true });
   });
 
-  // ── Import detail — dynamic segment after all static /imports/* ───────────
+  // ── Import detail ────────────────────────────────────────────────────────
   app.get('/api/contacts/imports/:id', async (req) => {
+    const userId = req.user!.sub;
     const { id } = req.params as { id: string };
-    const imp = await prisma.contactImport.findUnique({ where: { id } });
+    const imp = await prisma.contactImport.findFirst({ where: { id, userId } });
     if (!imp) throw new NotFoundError('Importacao nao encontrada');
 
     const contacts = await prisma.contact.findMany({
-      where: { origin: { startsWith: `import:${id}` } },
+      where: { userId, origin: { startsWith: `import:${id}` } },
       orderBy: { createdAt: 'desc' },
       take: 2000,
     });
@@ -125,13 +134,13 @@ export async function contactsRoutes(app: FastifyInstance) {
     return { ...imp, contacts };
   });
 
-  // ── CSV/JSON import (static path — must come before /:id) ────────────────
+  // ── CSV/JSON import ──────────────────────────────────────────────────────
   app.post('/api/contacts/import', async (req) => {
+    const userId = req.user!.sub;
     const file = await (req as any).file();
     if (!file) throw new Error('Arquivo ausente');
     const name = (file.fields?.name?.value as string) ?? file.filename;
 
-    // Parse optional comma-separated tags from multipart field
     const rawTags: string = (file.fields?.tags?.value as string) ?? '';
     const tags: string[] = rawTags
       ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
@@ -150,23 +159,21 @@ export async function contactsRoutes(app: FastifyInstance) {
     let nameIdx: number;
 
     if (hasHeader) {
-      // Skip header row and resolve column positions from it
       dataLines = allLines.slice(1);
       ({ phoneIdx, nameIdx } = findColumnIndexes(firstRow));
     } else {
-      // No header: assume first col = phone, second col = name
       dataLines = allLines;
       phoneIdx = 0;
       nameIdx = 1;
     }
 
-    // Keep only rows where the phone cell contains at least one digit
     const rows = dataLines
       .map((line: string) => line.split(/[;,\t]/).map((cell: string) => cell.trim()))
       .filter((row: string[]) => row[phoneIdx] && /\d/.test(row[phoneIdx]));
 
     const imp = await prisma.contactImport.create({
       data: {
+        userId,
         name,
         filename: file.filename,
         status: 'processing',
@@ -174,17 +181,18 @@ export async function contactsRoutes(app: FastifyInstance) {
       },
     });
 
-    // Inline processing — use BullMQ in production
     let processed = 0;
     let errors = 0;
     for (const row of rows) {
-      const phone = row[phoneIdx];
+      const phone = normalizePhone(row[phoneIdx]);
       const cname = row[nameIdx];
+      if (!phone) { errors++; continue; }
       try {
         await prisma.contact.upsert({
-          where: { phone: phone.replace(/\D/g, '') },
+          where: { userId_phone: { userId, phone } },
           create: {
-            phone: phone.replace(/\D/g, ''),
+            userId,
+            phone,
             name: cname ?? phone,
             origin: `import:${imp.id}`,
             ...(tags.length ? { tags } : {}),
@@ -207,8 +215,9 @@ export async function contactsRoutes(app: FastifyInstance) {
     });
   });
 
-  // ── Export (static path — must come before /:id) ─────────────────────────
+  // ── Export ───────────────────────────────────────────────────────────────
   app.get('/api/contacts/export', async (req, reply) => {
+    const userId = req.user!.sub;
     const { format, importIds } = z
       .object({
         format: z.enum(['csv', 'json']).default('csv'),
@@ -216,7 +225,7 @@ export async function contactsRoutes(app: FastifyInstance) {
       })
       .parse(req.query);
 
-    const where: any = {};
+    const where: any = { userId };
 
     if (importIds) {
       const ids = importIds.split(',').map((s) => s.trim()).filter(Boolean);
@@ -238,24 +247,33 @@ export async function contactsRoutes(app: FastifyInstance) {
     return header + body;
   });
 
-  // ── Single contact by id (dynamic — last among GETs) ─────────────────────
+  // ── Single contact by id ─────────────────────────────────────────────────
   app.get('/api/contacts/:id', async (req, reply) => {
+    const userId = req.user!.sub;
     const { id } = req.params as { id: string };
-    const contact = await prisma.contact.findUnique({ where: { id } });
+    const contact = await prisma.contact.findFirst({ where: { id, userId } });
     if (!contact) return reply.status(404).send({ error: 'Contato nao encontrado' });
     return contact;
   });
 
   // ── Update ────────────────────────────────────────────────────────────────
-  app.put('/api/contacts/:id', async (req) => {
+  app.put('/api/contacts/:id', async (req, reply) => {
+    const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const body = createSchema.partial().parse(req.body);
-    return prisma.contact.update({ where: { id }, data: body });
+    const existing = await prisma.contact.findFirst({ where: { id, userId } });
+    if (!existing) return reply.status(404).send({ error: 'Contato nao encontrado' });
+    const data: any = { ...body };
+    if (body.phone) data.phone = normalizePhone(body.phone);
+    return prisma.contact.update({ where: { id }, data });
   });
 
   // ── Delete ────────────────────────────────────────────────────────────────
   app.delete('/api/contacts/:id', async (req, reply) => {
+    const userId = req.user!.sub;
     const { id } = req.params as { id: string };
+    const existing = await prisma.contact.findFirst({ where: { id, userId } });
+    if (!existing) return reply.status(404).send({ error: 'Contato nao encontrado' });
     await prisma.contact.delete({ where: { id } });
     return reply.send({ ok: true });
   });

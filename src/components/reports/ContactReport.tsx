@@ -59,7 +59,7 @@ const data = [
   { name: 'Dom', contatos: 34, mensagens: 4300 },
 ];
 
-export const ContactReport = ({ isLoading: globalLoading }: { isLoading: boolean }) => {
+export const ContactReport = ({ isLoading: globalLoading, dateRange }: { isLoading: boolean; dateRange?: string }) => {
   const [metrics, setMetrics] = useState<ContactMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);

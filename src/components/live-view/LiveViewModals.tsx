@@ -50,9 +50,7 @@ interface LiveViewModalsProps {
     import: boolean;
     download: boolean;
     audio: boolean;
-    history: boolean;
     block: boolean;
-    attachment: boolean;
     campaign: boolean;
   };
   onClose: (modal: keyof LiveViewModalsProps['modals']) => void;

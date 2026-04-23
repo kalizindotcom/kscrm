@@ -1,5 +1,6 @@
 import type { Contact, ContactImport } from '../types';
 import { apiClient } from './apiClient';
+import { useAuthStore } from '@/store';
 
 interface PaginatedContacts {
   items: Contact[];
@@ -61,13 +62,14 @@ export const contactService = {
   },
 
   exportContacts: (format: 'csv' | 'json', importIds?: string[]): void => {
-    const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3000';
-    const token = localStorage.getItem('ks_token');
+    const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
+    const token = useAuthStore.getState().token;
     const params = new URLSearchParams({ format });
     if (importIds && importIds.length > 0) params.set('importIds', importIds.join(','));
     fetch(`${API_URL}/api/contacts/export?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     }).then(async (res) => {
+      if (!res.ok) return;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -75,7 +77,7 @@ export const contactService = {
       a.download = `contacts.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-    });
+    }).catch(() => undefined);
   },
 
   importList: async (file: File, name: string, tags?: string): Promise<ContactImport> => {

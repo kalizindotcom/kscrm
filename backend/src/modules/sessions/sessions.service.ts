@@ -216,8 +216,8 @@ export async function syncContacts(userId: string, id: string) {
     where: { id },
     select: { id: true, name: true, status: true },
   });
-  if (!session) throw new NotFoundError('SessÃ£o nÃ£o encontrada');
-  if (session.status !== 'connected') throw new ValidationError('SessÃ£o nÃ£o conectada');
+  if (!session) throw new NotFoundError('Sessão não encontrada');
+  if (session.status !== 'connected') throw new ValidationError('Sessão não conectada');
 
   await prisma.session.update({
     where: { id },
@@ -241,6 +241,7 @@ export async function syncContacts(userId: string, id: string) {
   const importName = `Contatos WhatsApp - ${session.name}`;
   const importRow = await prisma.contactImport.create({
     data: {
+      userId,
       name: importName,
       filename: `${importName}.csv`,
       status: 'processing',
@@ -259,14 +260,15 @@ export async function syncContacts(userId: string, id: string) {
 
     for (const phone of uniquePhones) {
       try {
-        const existing = await prisma.contact.findUnique({
-          where: { phone },
+        const existing = await prisma.contact.findFirst({
+          where: { userId, phone },
           select: { tags: true },
         });
         const tags = Array.from(new Set([...(existing?.tags ?? []), sessionTag]));
         await prisma.contact.upsert({
-          where: { phone },
+          where: { userId_phone: { userId, phone } },
           create: {
+            userId,
             phone,
             name: phone,
             origin: `session:${id}`,
@@ -302,8 +304,8 @@ export async function syncContacts(userId: string, id: string) {
         severity: errorCount > 0 ? 'warning' : 'success',
         message:
           errorCount > 0
-            ? `SincronizaÃ§Ã£o concluÃ­da com ${processedCount} contatos salvos e ${errorCount} falhas`
-            : `SincronizaÃ§Ã£o concluÃ­da com ${processedCount} contatos salvos`,
+            ? `Sincronização concluída com ${processedCount} contatos salvos e ${errorCount} falhas`
+            : `Sincronização concluída com ${processedCount} contatos salvos`,
         origin: 'system',
       },
     });
@@ -312,7 +314,7 @@ export async function syncContacts(userId: string, id: string) {
       where: { id: importRow.id },
       data: {
         status: 'failed',
-        errorLog: error?.message ? String(error.message) : 'Falha na sincronizaÃ§Ã£o de contatos',
+        errorLog: error?.message ? String(error.message) : 'Falha na sincronização de contatos',
       },
     });
     await prisma.sessionLog.create({
@@ -320,7 +322,7 @@ export async function syncContacts(userId: string, id: string) {
         sessionId: id,
         type: 'sync_contacts',
         severity: 'error',
-        message: error?.message ?? 'Falha na sincronizaÃ§Ã£o de contatos',
+        message: error?.message ?? 'Falha na sincronização de contatos',
         origin: 'system',
       },
     });

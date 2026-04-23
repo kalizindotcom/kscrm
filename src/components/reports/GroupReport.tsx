@@ -47,7 +47,7 @@ import { reportsService, GroupMetrics } from '@/services/reportsService';
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from 'sonner';
 
-export const GroupReport = ({ isLoading: globalLoading }: { isLoading: boolean }) => {
+export const GroupReport = ({ isLoading: globalLoading, dateRange }: { isLoading: boolean; dateRange?: string }) => {
   const [metrics, setMetrics] = useState<GroupMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDetailOpen, setIsDetailOpen] = useState(false);

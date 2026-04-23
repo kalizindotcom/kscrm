@@ -53,10 +53,15 @@ export async function sendText(userId: string, sessionId: string, phone: string,
   // Resolve quoted message for reply-to
   let quotedWaMessageId: string | undefined;
   let quotedContent: string | undefined;
+  let quotedFromMe: boolean | undefined;
   if (quotedMessageId) {
-    const quoted = await prisma.message.findUnique({ where: { id: quotedMessageId }, select: { waMessageId: true, content: true } });
+    const quoted = await prisma.message.findUnique({
+      where: { id: quotedMessageId },
+      select: { waMessageId: true, content: true, direction: true },
+    });
     quotedWaMessageId = quoted?.waMessageId ?? undefined;
     quotedContent = quoted?.content ?? undefined;
+    quotedFromMe = quoted ? quoted.direction === 'outbound' : undefined;
   }
 
   const pending = await prisma.message.create({
@@ -66,7 +71,9 @@ export async function sendText(userId: string, sessionId: string, phone: string,
       content,
       type: 'text',
       status: 'sending',
-      ...(quotedContent ? { replyToContent: quotedContent, replyToFromMe: false } as any : {}),
+      ...(quotedContent
+        ? ({ replyToContent: quotedContent, replyToFromMe: quotedFromMe ?? false } as any)
+        : {}),
     },
   });
 

@@ -23,14 +23,15 @@ import { Separator } from '../components/ui/separator';
 import { toast } from 'sonner';
 import { apiClient } from '../services/apiClient';
 import { useSessionStore } from '../store/useSessionStore';
+import { useAuthStore } from '../store';
 
 export const SettingsPage: React.FC = () => {
   const [autoDeleteMessages, setAutoDeleteMessages] = useState(false);
   const [autoDeleteGroups, setAutoDeleteGroups] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [antiBanEnabled, setAntiBanEnabled] = useState(true);
   const [antiBanLoading, setAntiBanLoading] = useState(false);
   const { sessions } = useSessionStore();
+  const { user } = useAuthStore();
 
   const connectedSessions = sessions.filter((s) => s.status === 'connected');
 
@@ -62,11 +63,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleSave = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      toast.success('Configurações salvas com sucesso!');
-    }, 1000);
+    toast.success('Configurações salvas com sucesso!');
   };
 
   return (
@@ -317,11 +314,11 @@ export const SettingsPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nome Completo</Label>
-                  <div className="p-2 border rounded-md bg-muted/30">Usuário Protótipo</div>
+                  <div className="p-2 border rounded-md bg-muted/30">{user?.name ?? '—'}</div>
                 </div>
                 <div className="space-y-2">
                   <Label>E-mail</Label>
-                  <div className="p-2 border rounded-md bg-muted/30">contato@exemplo.com.br</div>
+                  <div className="p-2 border rounded-md bg-muted/30">{user?.email ?? '—'}</div>
                 </div>
               </div>
             </CardContent>
@@ -330,12 +327,8 @@ export const SettingsPage: React.FC = () => {
       </Tabs>
 
       <div className="flex justify-end pt-4">
-        <Button onClick={handleSave} disabled={loading} className="gap-2">
-          {loading ? 'Salvando...' : (
-            <>
-              <Save className="w-4 h-4" /> Salvar Alterações
-            </>
-          )}
+        <Button onClick={handleSave} className="gap-2">
+          <Save className="w-4 h-4" /> Salvar Alterações
         </Button>
       </div>
     </div>

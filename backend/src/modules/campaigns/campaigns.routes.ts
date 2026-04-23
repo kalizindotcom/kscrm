@@ -41,6 +41,16 @@ const buttonSchema = z.object({
   value: z.string().default(''),
 });
 
+function parseHHMM(v?: string | null): number | null {
+  if (!v) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
+  return h * 60 + mm;
+}
+
 const createSchema = z.object({
   name: z.string().min(1).max(120),
   sessionId: z.string().optional(),
@@ -63,6 +73,14 @@ const createSchema = z.object({
   mediaFilename: z.string().optional(),
   linkUrl: z.string().url().optional().or(z.literal('')),
 });
+
+function assertValidWindow(ws?: string | null, we?: string | null) {
+  const s = parseHHMM(ws ?? null);
+  const e = parseHHMM(we ?? null);
+  if (s != null && e != null && s >= e) {
+    throw new AppError('windowStart deve ser anterior a windowEnd', 400, 'INVALID_WINDOW');
+  }
+}
 
 const targetSourceSchema = z.object({
   replace: z.boolean().default(false), // if true, clear existing targets first
@@ -128,7 +146,7 @@ async function gatherPhonesFromSources(
   if (src.importIds?.length) {
     const conditions = src.importIds.map((id) => ({ origin: { startsWith: `import:${id}` } }));
     const contacts = await prisma.contact.findMany({
-      where: { OR: conditions },
+      where: { userId, OR: conditions },
       select: { phone: true, name: true },
       take: 100_000,
     });
@@ -137,7 +155,7 @@ async function gatherPhonesFromSources(
 
   if (src.tags?.length) {
     const contacts = await prisma.contact.findMany({
-      where: { tags: { hasSome: src.tags } },
+      where: { userId, tags: { hasSome: src.tags } },
       select: { phone: true, name: true },
       take: 100_000,
     });
@@ -315,6 +333,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   // ── Create campaign ────────────────────────────────────────────────────────
   app.post('/api/campaigns', async (req) => {
     const body = createSchema.parse(req.body);
+    assertValidWindow(body.windowStart, body.windowEnd);
 
     if (body.sessionId) {
       await ensureSessionOwned(body.sessionId, req.user!.sub);
@@ -356,6 +375,10 @@ export async function campaignsRoutes(app: FastifyInstance) {
     }
 
     const body = createSchema.partial().parse(req.body);
+    assertValidWindow(
+      body.windowStart ?? existing.windowStart,
+      body.windowEnd ?? existing.windowEnd,
+    );
 
     if (body.sessionId) {
       await ensureSessionOwned(body.sessionId, req.user!.sub);
@@ -379,10 +402,15 @@ export async function campaignsRoutes(app: FastifyInstance) {
   // ── Delete campaign ────────────────────────────────────────────────────────
   app.delete('/api/campaigns/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    await ensureCampaignOwned(id, req.user!.sub);
+    const camp = await ensureCampaignOwned(id, req.user!.sub);
     if (isActive(id)) {
       cancelCampaign(id);
       // let worker finish; attempt delete anyway (targets cascade)
+    }
+    // Clean up media file on disk (if any)
+    if (camp.mediaUrl && camp.mediaUrl.startsWith('/uploads/')) {
+      const p = path.resolve(env.UPLOAD_DIR, camp.mediaUrl.replace('/uploads/', ''));
+      fs.unlink(p).catch(() => undefined);
     }
     await prisma.campaign.delete({ where: { id } });
     return reply.send({ ok: true });

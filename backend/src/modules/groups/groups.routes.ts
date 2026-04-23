@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import * as XLSX from 'xlsx';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import * as baileys from '../../providers/baileys/manager.js';
@@ -123,13 +124,18 @@ export async function groupsRoutes(app: FastifyInstance) {
       return header + body;
     }
 
-    // xlsx — UTF-8 BOM + semicolons = opens natively in Excel
-    const bom = '\uFEFF';
-    const header = 'phone;is_admin\n';
-    const body = rows.map((r) => `${r.phone};${r.is_admin}`).join('\n');
-    reply.header('Content-Type', 'text/csv; charset=utf-8');
-    reply.header('Content-Disposition', `attachment; filename="${safeFilename}_excel.csv"`);
-    return bom + header + body;
+    // Real XLSX binary via SheetJS
+    const ws = XLSX.utils.json_to_sheet(
+      rows.map((r) => ({ Telefone: r.phone, Admin: r.is_admin === 'sim' ? 'Sim' : 'Não' })),
+    );
+    // Column widths
+    ws['!cols'] = [{ wch: 18 }, { wch: 8 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Membros');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', `attachment; filename="${safeFilename}.xlsx"`);
+    return reply.send(buf);
   });
 
   // ── Save members to contacts ───────────────────────────────────────────────
@@ -145,8 +151,10 @@ export async function groupsRoutes(app: FastifyInstance) {
 
     const allJids = [...new Set([...group.admins, ...group.members])];
 
+    const userId = req.user!.sub;
     const imp = await prisma.contactImport.create({
       data: {
+        userId,
         name: importName,
         filename: `${importName}.csv`,
         status: 'processing',
@@ -160,8 +168,8 @@ export async function groupsRoutes(app: FastifyInstance) {
       if (!phone) continue;
       try {
         await prisma.contact.upsert({
-          where: { phone },
-          create: { phone, name: phone, origin: `import:${imp.id}`, tags: [groupTag] },
+          where: { userId_phone: { userId, phone } },
+          create: { userId, phone, name: phone, origin: `import:${imp.id}`, tags: [groupTag] },
           update: { origin: `import:${imp.id}`, tags: [groupTag] },
         });
         processed++;

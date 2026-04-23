@@ -16,6 +16,16 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, Button, Badge } from '../components/ui/shared';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import { cn, formatDate } from '../lib/utils';
 import { Conversation } from '../types';
 import { NewMessageModal } from '../components/messages/NewMessageModal';
@@ -113,6 +123,7 @@ export const InboxPage: React.FC = () => {
   const [localConversations, setLocalConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const { sessions, setSessions, selectedSessionId, openCreateSessionModal } = useSessionStore();
 
@@ -166,15 +177,20 @@ export const InboxPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [selectedSessionId]);
 
-  const handleDeleteConversation = async (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta conversa?')) {
-      try {
-        await conversationService.delete(id);
-      } catch {
-        // best-effort
-      }
-      setLocalConversations((prev) => prev.filter((conversation) => conversation.id !== id));
-      toast.error('Conversa excluida');
+  const handleDeleteConversation = (id: string) => {
+    setDeleteTargetId(id);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
+    try {
+      await conversationService.delete(id);
+      setLocalConversations((prev) => prev.filter((c) => c.id !== id));
+      toast.success('Conversa excluída.');
+    } catch {
+      toast.error('Falha ao excluir a conversa.');
     }
   };
 
@@ -415,6 +431,26 @@ export const InboxPage: React.FC = () => {
           onDelete={handleDeleteConversation}
         />
       )}
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A conversa e todas as mensagens serão removidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDeleteConversation}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

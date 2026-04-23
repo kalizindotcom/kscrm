@@ -97,13 +97,38 @@ export const useAuthStore = create<AuthState>()(
           headers: { Authorization: `Bearer ${state.token}` },
         });
 
-        if (!response.ok) {
-          state.clearSession();
+        if (response.ok) {
+          const user = (await response.json()) as User;
+          set({ user, isAuthenticated: true });
           return;
         }
 
-        const user = (await response.json()) as User;
-        set({ user, isAuthenticated: true });
+        // Access token expired — try to refresh before giving up
+        if (response.status === 401 && state.refreshToken) {
+          try {
+            const refreshResp = await fetch(`${API_URL}/api/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refreshToken: state.refreshToken }),
+            });
+            if (refreshResp.ok) {
+              const { token } = (await refreshResp.json()) as { token: string };
+              set({ token });
+              const retryResp = await fetch(`${API_URL}/api/auth/me`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (retryResp.ok) {
+                const user = (await retryResp.json()) as User;
+                set({ user, isAuthenticated: true });
+                return;
+              }
+            }
+          } catch {
+            // fall through to clearSession
+          }
+        }
+
+        state.clearSession();
       },
     }),
     {

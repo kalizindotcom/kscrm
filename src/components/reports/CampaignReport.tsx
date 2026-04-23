@@ -34,13 +34,14 @@ import {
   DialogFooter
 } from "@/components/ui/dialog";
 import { reportsService, DetailedCampaign, CampaignLog } from '@/services/reportsService';
+import { campaignService } from '@/services/campaignService';
 import { toast } from 'sonner';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export const CampaignReport = ({ isLoading: globalLoading }: { isLoading: boolean }) => {
+export const CampaignReport = ({ isLoading: globalLoading, dateRange }: { isLoading: boolean; dateRange?: string }) => {
   const [campaigns, setCampaigns] = useState<DetailedCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -84,15 +85,19 @@ export const CampaignReport = ({ isLoading: globalLoading }: { isLoading: boolea
   };
 
   const handleReSend = (campaign: DetailedCampaign) => {
-    toast.promise(new Promise(r => setTimeout(r, 1000)), {
+    toast.promise(campaignService.restart(campaign.id), {
       loading: 'Preparando reenvio...',
-      success: 'Reenvio agendado com sucesso!',
-      error: 'Erro ao agendar reenvio'
+      success: 'Campanha reiniciada com sucesso!',
+      error: 'Erro ao reiniciar campanha',
     });
   };
 
   const handleDuplicate = (campaign: DetailedCampaign) => {
-    toast.success('Campanha duplicada com sucesso!');
+    toast.promise(campaignService.duplicate(campaign.id), {
+      loading: 'Duplicando campanha...',
+      success: 'Campanha duplicada com sucesso!',
+      error: 'Erro ao duplicar campanha',
+    });
   };
 
   if (loading || globalLoading) {

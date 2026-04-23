@@ -8,7 +8,6 @@ const schema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:8080'),
 
   DATABASE_URL: z.string(),
-  REDIS_URL: z.string().default('redis://localhost:6379'),
 
   JWT_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
@@ -34,7 +33,7 @@ const schema = z.object({
   UPLOAD_MAX_MB: z.coerce.number().default(50),
 
   SEED_ADMIN_EMAIL: z.string().email().default('admin@kscsm.com'),
-  SEED_ADMIN_PASSWORD: z.string().default('admin123'),
+  SEED_ADMIN_PASSWORD: z.string().min(8, 'SEED_ADMIN_PASSWORD must be at least 8 characters').default('changeme!'),
   SEED_ADMIN_NAME: z.string().default('Admin'),
 });
 

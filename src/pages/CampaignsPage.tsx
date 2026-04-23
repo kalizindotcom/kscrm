@@ -278,19 +278,48 @@ const WhatsAppPreview: React.FC<{
   const localPreviewUrlRef = useRef<string | null>(null);
   const completionHandledKeyRef = useRef<string | null>(null);
 
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    if (localPreviewUrlRef.current) {
+      URL.revokeObjectURL(localPreviewUrlRef.current);
+    }
+    const localPreviewUrl = URL.createObjectURL(file);
+    localPreviewUrlRef.current = localPreviewUrl;
+    setMediaFile(file);
+    setMediaUrl(localPreviewUrl);
+    if (file.type.startsWith('image/')) setMediaType('image');
+    else if (file.type.startsWith('video/')) setMediaType('video');
+    else if (file.type.startsWith('audio/')) setMediaType('audio');
+
+    // Immediately upload to the backend so the media is already attached
+    // to the campaign and available when the user fires the dispatch.
+    try {
+      setIsUploading(true);
+      const uploaded = await campaignService.uploadMedia(campaign.id, file);
+      // Replace the local blob preview with the server-hosted URL
       if (localPreviewUrlRef.current) {
         URL.revokeObjectURL(localPreviewUrlRef.current);
+        localPreviewUrlRef.current = null;
       }
-      const localPreviewUrl = URL.createObjectURL(file);
-      localPreviewUrlRef.current = localPreviewUrl;
-      setMediaFile(file);
-      setMediaUrl(localPreviewUrl);
-      if (file.type.startsWith('image/')) setMediaType('image');
-      else if (file.type.startsWith('video/')) setMediaType('video');
-      else if (file.type.startsWith('audio/')) setMediaType('audio');
+      setMediaUrl(uploaded.mediaUrl);
+      setMediaType((uploaded.mediaType as any) ?? mediaType);
+      // Clear mediaFile marker so we don't re-upload on Save
+      setMediaFile(null);
+      toast.success('Mídia anexada à campanha.');
+      // Note: the backend POST /media endpoint already persisted mediaUrl on the
+      // Campaign row, so there's no need to trigger a separate PUT via onSave.
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Falha ao enviar mídia. Tente novamente.');
+      // Roll back: clear selection so user can retry
+      setMediaFile(null);
+      setMediaUrl(null);
+      setMediaType('none');
+    } finally {
+      setIsUploading(false);
+      // Reset input so the same file can be selected again
+      e.target.value = '';
     }
   };
 
