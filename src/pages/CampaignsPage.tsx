@@ -460,9 +460,12 @@ const WhatsAppPreview: React.FC<{
     // If the user selected imports from the picker, push them as targets now.
     if (showContactSelector && selectedImports.length > 0) {
       try {
+        const importIds = selectedImports.filter(id => id !== '__manual__');
+        const includeManual = selectedImports.includes('__manual__');
         await campaignService.setTargets(campaign.id, {
           replace: true,
-          importIds: selectedImports,
+          ...(importIds.length > 0 ? { importIds } : {}),
+          ...(includeManual ? { includeManual: true } : {}),
         });
       } catch (err: any) {
         toast.error(err?.message ?? 'Falha ao carregar contatos das listas');
@@ -569,9 +572,14 @@ const WhatsAppPreview: React.FC<{
       .list()
       .then(setTemplates)
       .catch(() => setTemplates([]));
-    contactService
-      .listImports()
-      .then(items => setImportsList(items.map(i => ({ id: i.id, name: i.name, count: i.contactCount ?? 0 }))))
+    Promise.all([contactService.listImports(), contactService.countManual()])
+      .then(([items, manualCount]) => {
+        const mapped = items.map(i => ({ id: i.id, name: i.name, count: i.contactCount ?? 0 }));
+        if (manualCount > 0) {
+          mapped.unshift({ id: '__manual__', name: 'Contatos Manuais', count: manualCount });
+        }
+        setImportsList(mapped);
+      })
       .catch(() => setImportsList([]));
   }, []);
 
@@ -1044,7 +1052,7 @@ const WhatsAppPreview: React.FC<{
                                 <p className="text-[10px] text-muted-foreground">{imp.count} contatos</p>
                               </div>
                             </div>
-                            <Badge variant="outline" className="text-[9px] px-1 h-4">Importação</Badge>
+                            <Badge variant="outline" className="text-[9px] px-1 h-4">{imp.id === '__manual__' ? 'Manual' : 'Importação'}</Badge>
                           </div>
                         ))}
                       </div>

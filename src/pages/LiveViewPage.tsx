@@ -278,7 +278,7 @@ export const LiveViewPage: React.FC = () => {
               createdAt: c.createdAt,
               unreadCount: c.unreadCount,
               status: c.status === 'resolved' ? 'archived' : 'active',
-              origin: isGroup ? 'api' : 'direct',
+              origin: isGroup ? 'grupo' : 'direct',
               tags: isGroup ? ['grupo'] : [],
               messages: previous?.messages ?? [],
               hasMoreMessages: previous?.hasMoreMessages,

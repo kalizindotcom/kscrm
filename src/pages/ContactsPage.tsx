@@ -33,6 +33,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { contactService } from '../services/contactService';
 import { Contact, ContactImport } from '../types';
 import { formatDate } from '../lib/utils';
@@ -66,7 +67,10 @@ export const ContactsPage: React.FC = () => {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactTags, setContactTags] = useState('');
+  const [contactListId, setContactListId] = useState<string>('__manual__');
   const [isCreatingContact, setIsCreatingContact] = useState(false);
+  const [filterListId, setFilterListId] = useState<string>('__all__');
+  const [showListFilter, setShowListFilter] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [isDeletingContacts, setIsDeletingContacts] = useState(false);
 
@@ -103,24 +107,29 @@ export const ContactsPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [imports]);
 
-  // Debounced search — resets to page 1
+  // Debounced search + list filter — resets to page 1
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(1);
-      loadContacts(1, search);
+      loadContacts(1, search, filterListId);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, filterListId]);
 
   // Page changes
   useEffect(() => {
-    loadContacts(page, search);
+    loadContacts(page, search, filterListId);
   }, [page]);
 
-  const loadContacts = async (p = 1, q = '') => {
+  const loadContacts = async (p = 1, q = '', lid = filterListId) => {
     setLoading(true);
     try {
-      const result = await contactService.list({ search: q || undefined, page: p, pageSize: PAGE_SIZE });
+      const result = await contactService.list({
+        search: q || undefined,
+        page: p,
+        pageSize: PAGE_SIZE,
+        listId: lid === '__all__' ? undefined : lid,
+      });
       setContacts(result.items);
       setTotal(result.total);
     } catch (error: any) {
@@ -159,7 +168,7 @@ export const ContactsPage: React.FC = () => {
       const created = await contactService.create({
         name: contactName.trim(),
         phone: normalizedPhone,
-        origin: 'manual',
+        origin: contactListId === '__manual__' ? 'manual' : `import:${contactListId}`,
         status: 'active',
         optIn: 'unknown',
         tags: contactTags
@@ -174,6 +183,7 @@ export const ContactsPage: React.FC = () => {
       setContactName('');
       setContactPhone('');
       setContactTags('');
+      setContactListId('__manual__');
       toast.success('Contato adicionado com sucesso.');
     } catch (error: any) {
       toast.error(error?.message ?? 'Nao foi possivel criar o contato.');
@@ -372,11 +382,40 @@ export const ContactsPage: React.FC = () => {
                   >
                     <Trash2 className="w-4 h-4 mr-2" /> Excluir selecionados
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
+                  <Button
+                    variant={filterListId !== '__all__' ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 lg:flex-none"
+                    onClick={() => setShowListFilter((v) => !v)}
+                  >
                     <Filter className="w-4 h-4 mr-2" /> Filtros
+                    {filterListId !== '__all__' && <span className="ml-1 text-[10px]">●</span>}
                   </Button>
                 </div>
               </div>
+
+              {showListFilter && (
+                <div className="px-4 py-3 border-b bg-muted/30 flex items-center gap-3">
+                  <Label className="text-xs text-muted-foreground whitespace-nowrap">Filtrar por lista:</Label>
+                  <Select value={filterListId} onValueChange={(v) => { setFilterListId(v); setPage(1); }}>
+                    <SelectTrigger className="h-8 text-xs w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">Todas as listas</SelectItem>
+                      <SelectItem value="__manual__">Contatos Manuais</SelectItem>
+                      {imports.map((imp) => (
+                        <SelectItem key={imp.id} value={imp.id}>{imp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {filterListId !== '__all__' && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setFilterListId('__all__'); setPage(1); }}>
+                      Limpar
+                    </Button>
+                  )}
+                </div>
+              )}
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -624,6 +663,21 @@ export const ContactsPage: React.FC = () => {
                 onChange={(e) => setContactTags(e.target.value)}
                 disabled={isCreatingContact}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Lista (opcional)</Label>
+              <Select value={contactListId} onValueChange={setContactListId} disabled={isCreatingContact}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecionar lista..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__manual__">Sem lista (Manual)</SelectItem>
+                  {imports.map((imp) => (
+                    <SelectItem key={imp.id} value={imp.id}>{imp.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

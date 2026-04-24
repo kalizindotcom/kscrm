@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import * as XLSX from 'xlsx';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { NotFoundError } from '../../lib/errors.js';
@@ -44,12 +45,13 @@ export async function contactsRoutes(app: FastifyInstance) {
   // ── List ─────────────────────────────────────────────────────────────────
   app.get('/api/contacts', async (req) => {
     const userId = req.user!.sub;
-    const { search, status, page, pageSize } = z
+    const { search, status, page, pageSize, listId } = z
       .object({
         search: z.string().optional(),
         status: z.enum(['active', 'inactive', 'pending']).optional(),
         page: z.coerce.number().default(1),
         pageSize: z.coerce.number().min(1).max(500).default(50),
+        listId: z.string().optional(),
       })
       .parse(req.query);
 
@@ -59,6 +61,11 @@ export async function contactsRoutes(app: FastifyInstance) {
       ...(search
         ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] }
         : {}),
+      ...(listId === '__manual__'
+        ? { origin: 'manual' }
+        : listId
+          ? { origin: { startsWith: `import:${listId}` } }
+          : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -146,30 +153,43 @@ export async function contactsRoutes(app: FastifyInstance) {
       ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
       : [];
 
-    const text = (await file.toBuffer()).toString('utf8');
-    const allLines = text.split(/\r?\n/).filter(Boolean);
+    const buffer = await file.toBuffer();
+    const isXlsx = file.filename?.match(/\.(xlsx|xls)$/i);
 
-    if (allLines.length === 0) throw new Error('Arquivo CSV vazio');
-
-    const firstRow = allLines[0].split(/[;,\t]/).map((cell: string) => cell.trim());
-    const hasHeader = detectHeader(firstRow);
-
-    let dataLines: string[];
+    let rows: string[][];
     let phoneIdx: number;
     let nameIdx: number;
 
-    if (hasHeader) {
-      dataLines = allLines.slice(1);
-      ({ phoneIdx, nameIdx } = findColumnIndexes(firstRow));
+    if (isXlsx) {
+      const wb = XLSX.read(buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' }) as string[][];
+      if (raw.length === 0) throw new Error('Arquivo Excel vazio');
+      const firstRow = raw[0].map((c: any) => String(c ?? '').trim());
+      const hasHeader = detectHeader(firstRow);
+      if (hasHeader) {
+        ({ phoneIdx, nameIdx } = findColumnIndexes(firstRow));
+        rows = raw.slice(1).map((r: any[]) => r.map((c: any) => String(c ?? '').trim()));
+      } else {
+        phoneIdx = 0; nameIdx = 1;
+        rows = raw.map((r: any[]) => r.map((c: any) => String(c ?? '').trim()));
+      }
     } else {
-      dataLines = allLines;
-      phoneIdx = 0;
-      nameIdx = 1;
+      const text = buffer.toString('utf8');
+      const allLines = text.split(/\r?\n/).filter(Boolean);
+      if (allLines.length === 0) throw new Error('Arquivo CSV vazio');
+      const firstRow = allLines[0].split(/[;,\t]/).map((cell: string) => cell.trim());
+      const hasHeader = detectHeader(firstRow);
+      if (hasHeader) {
+        ({ phoneIdx, nameIdx } = findColumnIndexes(firstRow));
+        rows = allLines.slice(1).map((line: string) => line.split(/[;,\t]/).map((c: string) => c.trim()));
+      } else {
+        phoneIdx = 0; nameIdx = 1;
+        rows = allLines.map((line: string) => line.split(/[;,\t]/).map((c: string) => c.trim()));
+      }
     }
 
-    const rows = dataLines
-      .map((line: string) => line.split(/[;,\t]/).map((cell: string) => cell.trim()))
-      .filter((row: string[]) => row[phoneIdx] && /\d/.test(row[phoneIdx]));
+    rows = rows.filter((row: string[]) => row[phoneIdx] && /\d/.test(row[phoneIdx]));
 
     const imp = await prisma.contactImport.create({
       data: {

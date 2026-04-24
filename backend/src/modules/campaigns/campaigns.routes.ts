@@ -19,6 +19,7 @@ import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import * as XLSX from 'xlsx';
 
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
@@ -94,6 +95,7 @@ const targetSourceSchema = z.object({
     )
     .optional(),
   importIds: z.array(z.string()).optional(),
+  includeManual: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
   groupId: z.string().optional(),
   groupAdminsOnly: z.boolean().optional(),
@@ -147,6 +149,15 @@ async function gatherPhonesFromSources(
     const conditions = src.importIds.map((id) => ({ origin: { startsWith: `import:${id}` } }));
     const contacts = await prisma.contact.findMany({
       where: { userId, OR: conditions },
+      select: { phone: true, name: true },
+      take: 100_000,
+    });
+    for (const c of contacts) push(c.phone, c.name);
+  }
+
+  if (src.includeManual) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId, origin: 'manual' },
       select: { phone: true, name: true },
       take: 100_000,
     });
@@ -484,8 +495,24 @@ export async function campaignsRoutes(app: FastifyInstance) {
     if (!file) return reply.status(400).send({ error: 'Arquivo não enviado' });
 
     const buffer = await file.toBuffer();
-    const content = buffer.toString('utf-8');
-    const parsed = parseCSV(content);
+    const isXlsx = file.filename?.match(/\.(xlsx|xls)$/i);
+    let parsed: { phone: string; name?: string; variables?: Record<string, string> }[];
+    if (isXlsx) {
+      const wb = XLSX.read(buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' });
+      const phoneLabels = new Set(['phone', 'telefone', 'celular', 'fone', 'whatsapp', 'numero', 'número']);
+      const nameLabels = new Set(['name', 'nome', 'contato']);
+      const keys = rows[0] ? Object.keys(rows[0]) : [];
+      const phoneKey = keys.find(k => phoneLabels.has(k.toLowerCase().trim())) ?? keys[0];
+      const nameKey = keys.find(k => nameLabels.has(k.toLowerCase().trim())) ?? keys[1];
+      parsed = rows
+        .map(r => ({ phone: String(r[phoneKey] ?? ''), name: r[nameKey] ? String(r[nameKey]) : undefined }))
+        .filter(r => /\d{6,}/.test(r.phone));
+    } else {
+      const content = buffer.toString('utf-8');
+      parsed = parseCSV(content);
+    }
 
     const existing = new Set(
       (

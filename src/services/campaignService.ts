@@ -45,6 +45,7 @@ export interface TargetSource {
   replace?: boolean;
   inline?: InlineTarget[];
   importIds?: string[];
+  includeManual?: boolean;
   tags?: string[];
   groupId?: string;
   groupAdminsOnly?: boolean;

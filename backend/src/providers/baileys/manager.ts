@@ -351,6 +351,10 @@ export async function ensure(sessionId: string): Promise<WASocket> {
         const lastMessagePreview = content.trim() || (hasMedia ? (mediaLabels[msgType] ?? `[${msgType}]`) : '');
 
         // upsert conversation
+        // fetch avatar for new conversations (non-blocking)
+        const jidFull = isGroup ? `${phone}@g.us` : `${phone}@s.whatsapp.net`;
+        const avatarUrl = await getProfilePictureUrl(sessionId, jidFull).catch(() => null);
+
         const conv = await prisma.conversation.upsert({
           where: { sessionId_phone: { sessionId, phone } },
           create: {
@@ -361,11 +365,13 @@ export async function ensure(sessionId: string): Promise<WASocket> {
             unreadCount: m.key.fromMe ? 0 : 1,
             isGroup,
             status: 'open',
+            ...(avatarUrl ? { avatar: avatarUrl } : {}),
           },
           update: {
             lastMessage: lastMessagePreview,
             unreadCount: m.key.fromMe ? undefined : { increment: 1 },
             contactName: isGroup ? (groupContactName ?? undefined) : (maybeName ?? undefined),
+            ...(avatarUrl ? { avatar: avatarUrl } : {}),
           },
         });
 

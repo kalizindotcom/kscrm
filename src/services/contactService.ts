@@ -19,8 +19,16 @@ export const contactService = {
     status?: 'active' | 'inactive' | 'pending';
     page?: number;
     pageSize?: number;
+    listId?: string;
   }): Promise<PaginatedContacts> => {
     return apiClient.get<PaginatedContacts>('/api/contacts', { query: params });
+  },
+
+  countManual: async (): Promise<number> => {
+    const result = await apiClient.get<{ total: number }>('/api/contacts', {
+      query: { listId: '__manual__', pageSize: 1, page: 1 },
+    });
+    return result.total;
   },
 
   get: async (id: string): Promise<Contact | undefined> => {
