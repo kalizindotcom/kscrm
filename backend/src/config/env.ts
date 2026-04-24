@@ -27,10 +27,10 @@ const schema = z.object({
   ANTIBAN_RATE_PER_DAY: z.coerce.number().default(1500),
   ANTIBAN_TYPING_MS_MIN: z.coerce.number().default(800),
   ANTIBAN_TYPING_MS_MAX: z.coerce.number().default(2500),
-  ANTIBAN_WARMUP_DAYS: z.coerce.number().default(3),
+  ANTIBAN_WARMUP_DAYS: z.coerce.number().default(0),
 
   UPLOAD_DIR: z.string().default('./data/uploads'),
-  UPLOAD_MAX_MB: z.coerce.number().default(50),
+  UPLOAD_MAX_MB: z.coerce.number().default(100),
 
   SEED_ADMIN_EMAIL: z.string().email().default('admin@kscsm.com'),
   SEED_ADMIN_PASSWORD: z.string().min(8, 'SEED_ADMIN_PASSWORD must be at least 8 characters').default('changeme!'),
