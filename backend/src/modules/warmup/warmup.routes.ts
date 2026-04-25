@@ -218,13 +218,13 @@ export async function warmupRoutes(app: FastifyInstance) {
 
     // Daily stats (last 14 days)
     const dailyStats = await prisma.$queryRaw<{ day: string; sent: bigint; failed: bigint }[]>`
-      SELECT DATE(sent_at)::text AS day,
+      SELECT DATE("sentAt")::text AS day,
              COUNT(*) FILTER (WHERE status = 'sent') AS sent,
              COUNT(*) FILTER (WHERE status = 'failed') AS failed
       FROM "WarmupLog"
-      WHERE plan_id = ${id}
-        AND sent_at >= NOW() - INTERVAL '14 days'
-      GROUP BY DATE(sent_at)
+      WHERE "planId" = ${id}
+        AND "sentAt" >= NOW() - INTERVAL '14 days'
+      GROUP BY DATE("sentAt")
       ORDER BY day ASC
     `;
 
