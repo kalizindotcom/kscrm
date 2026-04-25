@@ -151,9 +151,7 @@ export const LiveViewPage: React.FC = () => {
       }
     } catch (error: any) {
       const message = typeof error?.message === 'string' && error.message
-        ? error.message.includes('rate/min exceeded')
-          ? 'Limite por minuto atingido. Aguarde alguns segundos.'
-          : error.message
+        ? error.message
         : 'Falha ao enviar';
       setConversations((prev) =>
         prev.map((conv) =>

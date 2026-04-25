@@ -18,17 +18,6 @@ const schema = z.object({
   BAILEYS_BROWSER_NAME: z.string().default('KS CSM'),
   BAILEYS_BROWSER_VERSION: z.string().default('1.0.0'),
 
-  ANTIBAN_MIN_DELAY_MS: z.coerce.number().default(3000),
-  ANTIBAN_MAX_DELAY_MS: z.coerce.number().default(8000),
-  ANTIBAN_PAUSE_AFTER: z.coerce.number().default(80),
-  ANTIBAN_LONG_PAUSE_MS: z.coerce.number().default(300_000),
-  ANTIBAN_RATE_PER_MINUTE: z.coerce.number().default(8),
-  ANTIBAN_RATE_PER_HOUR: z.coerce.number().default(200),
-  ANTIBAN_RATE_PER_DAY: z.coerce.number().default(1500),
-  ANTIBAN_TYPING_MS_MIN: z.coerce.number().default(800),
-  ANTIBAN_TYPING_MS_MAX: z.coerce.number().default(2500),
-  ANTIBAN_WARMUP_DAYS: z.coerce.number().default(0),
-
   UPLOAD_DIR: z.string().default('./data/uploads'),
   UPLOAD_MAX_MB: z.coerce.number().default(100),
 

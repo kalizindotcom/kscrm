@@ -2,7 +2,7 @@
  * Campaign Worker
  * ─────────────────
  * Serviço in-process responsável por disparar campanhas respeitando:
- *  - anti-ban (quota, jitter, typing, long-pause)
+ *  - intervalo/jitter configurado na campanha
  *  - pausar/retomar/cancelar
  *  - crash-recovery (retoma campaigns com status='running' ao iniciar o processo)
  *  - window de horário (windowStart/windowEnd — ex: "09:00".."18:00")
@@ -22,7 +22,6 @@ import { env } from '../../config/env.js';
 import { emitTo } from '../../ws/index.js';
 import { logger } from '../../lib/logger.js';
 import * as baileys from '../../providers/baileys/manager.js';
-import { checkQuota, jitterDelay, sleep } from '../../providers/baileys/anti-ban.js';
 import { interpolate } from './interpolate.js';
 
 type ControllerState = 'running' | 'pausing' | 'paused' | 'stopping';
@@ -35,6 +34,7 @@ interface Controller {
 }
 
 const controllers = new Map<string, Controller>();
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Returns true if campaign is currently being processed by an in-memory worker. */
 export function isActive(campaignId: string): boolean {
@@ -165,26 +165,6 @@ async function runLoop(controller: Controller): Promise<void> {
           return;
         }
 
-        // Respect anti-ban quota; if blocked, wait and retry (don't fail the target)
-        const quota = await checkQuota(campaign.sessionId!);
-        if (!quota.allowed) {
-          // Revert claim (pending), then wait
-          await prisma.campaignTarget.update({
-            where: { id: target.id },
-            data: { status: 'pending', claimedAt: null },
-          });
-          const waitMs = Math.min(quota.retryAfterMs ?? 60_000, 5 * 60_000);
-          emitProgress(campaignId, {
-            waiting: `Quota do anti-ban atingida (${quota.reason}) — aguardando ${Math.round(waitMs / 1000)}s`,
-          });
-          await sleep(waitMs);
-          continue;
-        }
-        if (quota.longPause) {
-          emitProgress(campaignId, { waiting: 'Pausa longa anti-ban' });
-          await sleep(env.ANTIBAN_LONG_PAUSE_MS);
-        }
-
         // Interpolate message & optional caption
         const text = interpolate(campaign.messageContent ?? '', variables);
         const caption = campaign.mediaCaption
@@ -264,10 +244,7 @@ async function runLoop(controller: Controller): Promise<void> {
       // Inter-message jitter delay
       if (controller.state === 'running') {
         const wait = computeJitterDelay(campaign.intervalSec, campaign.jitterPct);
-        // Also layer the Baileys' humanized delay (short extra 1-3s)
-        const antiBan = await isAntiBanEnabled(campaign.sessionId!);
-        const total = wait + (antiBan ? Math.floor(jitterDelay() / 2) : 0);
-        await interruptibleSleep(total, controller);
+        await interruptibleSleep(wait, controller);
       }
     }
 
@@ -453,14 +430,6 @@ function emitProgress(campaignId: string, extra: Record<string, unknown>) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function isAntiBanEnabled(sessionId: string): Promise<boolean> {
-  const s = await prisma.session.findUnique({
-    where: { id: sessionId },
-    select: { antiBanEnabled: true } as any,
-  });
-  return (s as any)?.antiBanEnabled !== false;
-}
 
 function computeJitterDelay(intervalSec: number, jitterPct: number): number {
   const base = Math.max(1, intervalSec) * 1000;

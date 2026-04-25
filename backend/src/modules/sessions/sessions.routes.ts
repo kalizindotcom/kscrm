@@ -15,7 +15,6 @@ const createSchema = z.object({
 const updateSchema = createSchema.partial().extend({
   notes: z.string().optional(),
   favorite: z.boolean().optional(),
-  antiBanEnabled: z.boolean().optional(),
 });
 
 export async function sessionsRoutes(app: FastifyInstance) {

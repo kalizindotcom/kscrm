@@ -25,14 +25,6 @@ import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../db/client.js';
 import { emitTo } from '../../ws/index.js';
-import {
-  sleep,
-  typingMs,
-  jitterDelay,
-  checkQuota,
-  assertAllowedOrThrow,
-  incrementCounters,
-} from './anti-ban.js';
 
 type Instance = {
   sock: WASocket;
@@ -46,6 +38,7 @@ type ManualStopReason = 'pause' | 'terminate' | 'remove' | 'archive' | 'restart'
 const instances = new Map<string, Instance>();
 const pairingCodeRequests = new Map<string, Promise<string>>();
 const manualStopReasons = new Map<string, ManualStopReason>();
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function normalizeDigits(value: string) {
   return value.replace(/\D/g, '');
@@ -540,7 +533,7 @@ export async function remove(sessionId: string) {
   manualStopReasons.delete(sessionId);
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Envio com anti-ban â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Envio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function jidOf(phone: string, isGroup = false) {
   const trimmed = phone.trim();
@@ -568,22 +561,6 @@ function buildButtonsFallbackText(
   return `${baseText}\n\n${lines.join('\n')}`;
 }
 
-async function humanizedTyping(sock: WASocket, jid: string) {
-  try {
-    await sock.presenceSubscribe(jid);
-    await sock.sendPresenceUpdate('composing', jid);
-    await sleep(typingMs());
-    await sock.sendPresenceUpdate('paused', jid);
-  } catch {
-    // best-effort
-  }
-}
-
-async function isAntiBanEnabled(sessionId: string): Promise<boolean> {
-  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { antiBanEnabled: true } as any });
-  return (session as any)?.antiBanEnabled !== false;
-}
-
 export async function sendText(
   sessionId: string,
   phone: string,
@@ -593,13 +570,7 @@ export async function sendText(
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
 
-  const antiBan = await isAntiBanEnabled(sessionId);
-  const q = await checkQuota(sessionId);
-  assertAllowedOrThrow(q);
-  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
-
   const jid = jidOf(phone, opts.isGroup);
-  if (antiBan) await humanizedTyping(sock, jid);
 
   // Build quoted context for reply-to
   const sendOpts: any = {};
@@ -611,9 +582,6 @@ export async function sendText(
   }
 
   const result = await sock.sendMessage(jid, { text }, sendOpts);
-  await incrementCounters(sessionId);
-
-  if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
   return result;
 }
 
@@ -625,13 +593,8 @@ export async function sendMedia(
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
-  const antiBan = await isAntiBanEnabled(sessionId);
-  const q = await checkQuota(sessionId);
-  assertAllowedOrThrow(q);
-  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
   const jid = jidOf(phone, opts.isGroup);
-  if (antiBan) await humanizedTyping(sock, jid);
 
   const payload: any =
     media.type === 'image'
@@ -642,10 +605,7 @@ export async function sendMedia(
       ? { audio: media.buffer, mimetype: media.mimetype, ptt: true }
       : { document: media.buffer, mimetype: media.mimetype, fileName: media.filename ?? 'file', caption: media.caption };
 
-  const result = await sock.sendMessage(jid, payload);
-  await incrementCounters(sessionId);
-  if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
-  return result;
+  return sock.sendMessage(jid, payload);
 }
 
 /**
@@ -666,13 +626,8 @@ export async function sendButtons(
 ) {
   const sock = get(sessionId);
   if (!sock) throw new Error('Session not connected');
-  const antiBan = await isAntiBanEnabled(sessionId);
-  const q = await checkQuota(sessionId);
-  assertAllowedOrThrow(q);
-  if (antiBan && q.longPause) await sleep(env.ANTIBAN_LONG_PAUSE_MS);
 
   const jid = jidOf(phone, opts.isGroup);
-  if (antiBan) await humanizedTyping(sock, jid);
 
   const buttons = data.buttons.map((b, i) => ({
     buttonId: b.id || `btn_${i}`,
@@ -690,14 +645,10 @@ export async function sendButtons(
 
   try {
     const result = await sock.sendMessage(jid, payload);
-    await incrementCounters(sessionId);
-    if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
     return result;
   } catch {
     // fallback estÃ¡vel para clientes que nÃ£o renderizam/rejeitam buttonsMessage
     const result = await sock.sendMessage(jid, { text: fallbackText });
-    await incrementCounters(sessionId);
-    if (antiBan && opts.applyDelay !== false) await sleep(jitterDelay());
     return result;
   }
 }
