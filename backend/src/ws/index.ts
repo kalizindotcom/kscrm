@@ -91,6 +91,11 @@ export function emitTo(room: string, event: WsEvent) {
   io.to(room).emit(event.type, event);
 }
 
+export function emitToUser(userId: string, eventType: string, payload: Record<string, unknown>) {
+  if (!io) return;
+  io.to(`user:${userId}`).emit(eventType, payload);
+}
+
 export function getIO(): IOServer {
   if (!io) throw new Error('WS not initialized');
   return io;
