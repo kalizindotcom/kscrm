@@ -580,7 +580,7 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
               <Button size="sm" variant="outline" className="h-8 px-2.5" onClick={() => setShowLogs(true)} title="Ver logs">
                 <BarChart2 className="w-3.5 h-3.5" />
               </Button>
-              {isIdle && (
+              {!isRunning && (
                 <Button size="sm" variant="outline" className="h-8 px-2.5 border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setConfirmDelete(true)} disabled={actionLoading}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -659,7 +659,7 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
               </div>
 
               {/* Right: Live Chat */}
-              <div className="flex flex-col" style={{ minHeight: 360 }}>
+              <div className="flex flex-col" style={{ height: 420, maxHeight: 420 }}>
                 <div className="flex items-center gap-2 px-4 py-2.5 border-b border-primary/10 bg-primary/5">
                   <div
                     className={cn('w-2 h-2 rounded-full', isRunning ? 'bg-green-500' : 'bg-muted-foreground/30')}

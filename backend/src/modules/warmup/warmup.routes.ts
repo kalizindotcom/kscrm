@@ -157,10 +157,9 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    const stopped = pauseWarmup(id);
-    if (!stopped) {
-      await prisma.warmupPlan.update({ where: { id }, data: { status: 'paused' } });
-    }
+    pauseWarmup(id);
+    // Update DB immediately so frontend reload sees the new status right away
+    await prisma.warmupPlan.update({ where: { id }, data: { status: 'paused', pausedAt: new Date() } });
     return reply.send({ ok: true, status: 'paused' });
   });
 
@@ -170,10 +169,9 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    const stopped = stopWarmup(id);
-    if (!stopped) {
-      await prisma.warmupPlan.update({ where: { id }, data: { status: 'idle' } });
-    }
+    stopWarmup(id);
+    // Update DB immediately so frontend reload sees the new status right away
+    await prisma.warmupPlan.update({ where: { id }, data: { status: 'idle' } });
     return reply.send({ ok: true, status: 'idle' });
   });
 
