@@ -228,7 +228,7 @@ async function runLoop(controller: Controller): Promise<void> {
 
       // Decide media type
       const shouldSendMedia = plan.mediaEnabled && totalSentInLoop > 0 && totalSentInLoop % Math.max(1, plan.mediaFreq) === 0;
-      const shouldSendAudio = plan.audioEnabled && totalSentInLoop > 0 && totalSentInLoop % Math.max(2, (plan.mediaFreq ?? 5) + 2) === 0;
+      const shouldSendAudio = plan.audioEnabled && totalSentInLoop > 0 && totalSentInLoop % Math.max(2, (plan as any).audioFreq ?? 7) === 0;
 
       // Target: group or direct
       const targetPhone = plan.useGroup && plan.groupJid

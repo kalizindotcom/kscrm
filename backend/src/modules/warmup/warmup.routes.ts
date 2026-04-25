@@ -19,6 +19,7 @@ const createSchema = z.object({
   mediaEnabled: z.boolean().optional().default(false),
   mediaFreq: z.coerce.number().int().min(1).max(50).optional().default(5),
   audioEnabled: z.boolean().optional().default(false),
+  audioFreq: z.coerce.number().int().min(1).max(50).optional().default(7),
   customMessages: z.array(z.string()).optional().default([]),
 });
 

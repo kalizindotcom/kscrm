@@ -20,6 +20,7 @@ export interface WarmupPlan {
   mediaEnabled: boolean;
   mediaFreq: number;
   audioEnabled: boolean;
+  audioFreq: number;
   customMessages: string[];
   currentDay: number;
   startedAt?: string | null;
@@ -45,6 +46,7 @@ export interface WarmupPlanPayload {
   mediaEnabled?: boolean;
   mediaFreq?: number;
   audioEnabled?: boolean;
+  audioFreq?: number;
   customMessages?: string[];
 }
 

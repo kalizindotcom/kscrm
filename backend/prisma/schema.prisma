@@ -352,6 +352,7 @@ model WarmupPlan {
   mediaEnabled    Boolean  @default(false)
   mediaFreq       Int      @default(5)
   audioEnabled    Boolean  @default(false)
+  audioFreq       Int      @default(7)
 
   // Custom message bank (one message per entry)
   customMessages  String[] @default([])
