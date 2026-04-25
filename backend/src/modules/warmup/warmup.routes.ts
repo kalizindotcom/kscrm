@@ -4,6 +4,7 @@ import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { startWarmup, stopWarmup, pauseWarmup, isActive, calcChipHealth } from './warmup-worker.js';
 import { get as getSession } from '../../providers/baileys/manager.js';
+import { emitToUser } from '../../ws/index.js';
 
 const HH_MM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
@@ -193,6 +194,17 @@ export async function warmupRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Conecte ao menos 2 sessoes antes de iniciar o aquecimento' });
     }
     await startWarmup(id);
+    const fresh = await prisma.warmupPlan.findUnique({
+      where: { id },
+      select: { currentDay: true, durationDays: true },
+    });
+    emitToUser(userId, 'warmup.progress', {
+      planId: id,
+      status: 'running',
+      started: true,
+      currentDay: fresh?.currentDay ?? plan.currentDay,
+      durationDays: fresh?.durationDays ?? plan.durationDays,
+    });
     return reply.send({ ok: true, status: 'running' });
   });
 
@@ -202,12 +214,21 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    const changed = pauseWarmup(id);
-    if (!changed) {
-      await prisma.warmupPlan.update({ where: { id }, data: { status: 'paused', pausedAt: new Date() } });
-      return reply.send({ ok: true, status: 'paused' });
-    }
-    return reply.send({ ok: true, status: 'pausing' });
+    pauseWarmup(id);
+    const pausedAt = new Date();
+    const updated = await prisma.warmupPlan.update({
+      where: { id },
+      data: { status: 'paused', pausedAt },
+      select: { currentDay: true, durationDays: true },
+    });
+    emitToUser(userId, 'warmup.progress', {
+      planId: id,
+      status: 'paused',
+      paused: true,
+      currentDay: updated.currentDay,
+      durationDays: updated.durationDays,
+    });
+    return reply.send({ ok: true, status: 'paused' });
   });
 
   // ── Stop ────────────────────────────────────────────────────────────────────
@@ -216,12 +237,20 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    const changed = stopWarmup(id);
-    if (!changed) {
-      await prisma.warmupPlan.update({ where: { id }, data: { status: 'idle' } });
-      return reply.send({ ok: true, status: 'idle' });
-    }
-    return reply.send({ ok: true, status: 'stopping' });
+    stopWarmup(id);
+    const updated = await prisma.warmupPlan.update({
+      where: { id },
+      data: { status: 'idle' },
+      select: { currentDay: true, durationDays: true },
+    });
+    emitToUser(userId, 'warmup.progress', {
+      planId: id,
+      status: 'idle',
+      stopped: true,
+      currentDay: updated.currentDay,
+      durationDays: updated.durationDays,
+    });
+    return reply.send({ ok: true, status: 'idle' });
   });
 
   // ── Logs ────────────────────────────────────────────────────────────────────

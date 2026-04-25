@@ -18,6 +18,7 @@ import {
   type WarmupSessionDetail,
 } from '../services/warmupService';
 import { sessionService } from '../services/sessionService';
+import { groupsService } from '../services/groupsService';
 import { getSocket } from '../services/wsClient';
 import { cn } from '../lib/utils';
 
@@ -517,7 +518,7 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
     };
   }, [plan.id, loadStats]);
 
-  const effectiveStatus = plan.isActive ? 'running' : plan.status;
+  const effectiveStatus = plan.status;
 
   // Periodic refetch every 60s while running, in case WS misses an event
   useEffect(() => {
@@ -888,6 +889,14 @@ interface PlanFormState {
   customMessages: string;
 }
 
+interface GroupOption {
+  jid: string;
+  name: string;
+  memberCount: number;
+  sessionId: string;
+  sessionName: string;
+}
+
 function PlanForm({ initial, sessions, onSave, onClose, loading }: {
   initial?: Partial<WarmupPlanPayload>;
   sessions: any[];
@@ -915,6 +924,9 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
   });
   const [tab, setTab] = useState<'basic' | 'media' | 'messages'>('basic');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
 
   const update = <K extends keyof PlanFormState>(k: K, v: PlanFormState[K]) =>
     setS((p) => ({ ...p, [k]: v }));
@@ -942,6 +954,61 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
         ? p.selectedSessions.filter((x) => x !== id)
         : [...p.selectedSessions, id],
     }));
+
+  const loadGroupsForSelectedSessions = useCallback(async (forceSync = false) => {
+    if (!s.useGroup) {
+      setGroupOptions([]);
+      setGroupError(null);
+      return;
+    }
+
+    const selectedConnected = sessions.filter((sess: any) =>
+      s.selectedSessions.includes(sess.id) && sess.status === 'connected',
+    );
+    if (selectedConnected.length === 0) {
+      setGroupOptions([]);
+      setGroupError('Conecte ao menos 1 sessao selecionada para listar grupos');
+      return;
+    }
+
+    setGroupLoading(true);
+    setGroupError(null);
+    try {
+      const groupsPerSession = await Promise.all(
+        selectedConnected.map(async (sess: any) => {
+          if (forceSync) {
+            await groupsService.sync(sess.id).catch(() => undefined);
+          }
+          const listed = await groupsService.listBySession(sess.id);
+          return listed.map((g: any) => ({
+            jid: g.waGroupId as string | undefined,
+            name: (g.name as string | undefined) ?? 'Grupo',
+            memberCount: Number(g.memberCount ?? 0),
+            sessionId: sess.id,
+            sessionName: sess.name,
+          }));
+        }),
+      );
+
+      const flat = groupsPerSession
+        .flat()
+        .filter((g) => typeof g.jid === 'string' && g.jid.endsWith('@g.us')) as GroupOption[];
+      const unique = Array.from(new Map(flat.map((g) => [g.jid, g])).values());
+      setGroupOptions(unique);
+      if (unique.length === 0) {
+        setGroupError('Nenhum grupo encontrado nas sessoes selecionadas');
+      }
+    } catch {
+      setGroupOptions([]);
+      setGroupError('Nao foi possivel carregar os grupos');
+    } finally {
+      setGroupLoading(false);
+    }
+  }, [s.useGroup, s.selectedSessions, sessions]);
+
+  useEffect(() => {
+    loadGroupsForSelectedSessions(false);
+  }, [loadGroupsForSelectedSessions]);
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -1073,13 +1140,21 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5"><Label>Duração (dias)</Label><Input type="number" min={1} max={90} value={s.durationDays} onChange={updateNumber('durationDays', 1, 90)} /></div>
+            <div className="space-y-1.5">
+              <Label>Duração (dias)</Label>
+              <Input type="number" min={1} max={90} value={s.durationDays} onChange={updateNumber('durationDays', 1, 90)} />
+              {errors.durationDays && <p className="text-xs text-red-400">{errors.durationDays}</p>}
+            </div>
             <div className="space-y-1.5">
               <Label>Início msgs/dia</Label>
               <Input type="number" min={1} max={50} value={s.startMsgsPerDay} onChange={updateNumber('startMsgsPerDay', 1, 50)} />
               {errors.startMsgsPerDay && <p className="text-xs text-red-400">{errors.startMsgsPerDay}</p>}
             </div>
-            <div className="space-y-1.5"><Label>Máx msgs/dia</Label><Input type="number" min={1} max={200} value={s.maxMsgsPerDay} onChange={updateNumber('maxMsgsPerDay', 1, 200)} /></div>
+            <div className="space-y-1.5">
+              <Label>Máx msgs/dia</Label>
+              <Input type="number" min={1} max={200} value={s.maxMsgsPerDay} onChange={updateNumber('maxMsgsPerDay', 1, 200)} />
+              {errors.maxMsgsPerDay && <p className="text-xs text-red-400">{errors.maxMsgsPerDay}</p>}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1104,7 +1179,11 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
               <Input type="number" min={10} max={3600} value={s.intervalMin} onChange={updateNumber('intervalMin', 10, 3600)} />
               {errors.intervalMin && <p className="text-xs text-red-400">{errors.intervalMin}</p>}
             </div>
-            <div className="space-y-1.5"><Label>Intervalo máx (seg)</Label><Input type="number" min={10} max={3600} value={s.intervalMax} onChange={updateNumber('intervalMax', 10, 3600)} /></div>
+            <div className="space-y-1.5">
+              <Label>Intervalo máx (seg)</Label>
+              <Input type="number" min={10} max={3600} value={s.intervalMax} onChange={updateNumber('intervalMax', 10, 3600)} />
+              {errors.intervalMax && <p className="text-xs text-red-400">{errors.intervalMax}</p>}
+            </div>
           </div>
 
           {/* Group mode */}
@@ -1121,9 +1200,35 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
             </div>
             {s.useGroup && (
               <div className="space-y-1.5">
-                <Label className="text-xs">JID do Grupo (ex: 12036304...@g.us)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">Grupo de destino</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[10px]"
+                    onClick={() => loadGroupsForSelectedSessions(true)}
+                    disabled={groupLoading}
+                  >
+                    {groupLoading ? 'Sincronizando...' : 'Sincronizar grupos'}
+                  </Button>
+                </div>
+                <select
+                  value={s.groupJid}
+                  onChange={(e) => update('groupJid', e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs"
+                >
+                  <option value="">Selecionar grupo</option>
+                  {groupOptions.map((g) => (
+                    <option key={g.jid} value={g.jid}>
+                      {g.name} ({g.memberCount}) - {g.sessionName}
+                    </option>
+                  ))}
+                </select>
+                <Label className="text-[10px] text-muted-foreground">Ou informe o JID manualmente (ex: 12036304...@g.us)</Label>
                 <Input value={s.groupJid} onChange={(e) => update('groupJid', e.target.value)} placeholder="...@g.us" className="text-xs" />
                 {errors.groupJid && <p className="text-xs text-red-400">{errors.groupJid}</p>}
+                {groupError && <p className="text-[10px] text-yellow-400">{groupError}</p>}
                 <p className="text-[10px] text-muted-foreground">Mensagens serão enviadas neste grupo em vez de mensagens diretas.</p>
               </div>
             )}
@@ -1309,15 +1414,31 @@ export const WarmupPage: React.FC = () => {
     } finally { setFormLoading(false); }
   };
 
-  const act = async (planId: string, fn: () => Promise<any>, msg: string) => {
+  const act = async (
+    planId: string,
+    fn: () => Promise<any>,
+    msg: string,
+    optimisticStatus?: WarmupPlan['status'],
+  ) => {
     setActionLoading(planId);
-    try { await fn(); toast.success(msg); await load(); }
+    if (optimisticStatus) {
+      setPlans((prev) => prev.map((plan) => (
+        plan.id !== planId
+          ? plan
+          : { ...plan, status: optimisticStatus, isActive: optimisticStatus === 'running' }
+      )));
+    }
+    try {
+      await fn();
+      toast.success(msg);
+      await load();
+    }
     catch (e: any) { toast.error(e?.message ?? 'Erro'); }
     finally { setActionLoading(null); }
   };
 
   const handleEdit = (plan: WarmupPlan) => {
-    if (plan.status === 'running' || plan.isActive) {
+    if (plan.status === 'running') {
       toast.error('Pare o aquecimento antes de editar');
       return;
     }
@@ -1325,7 +1446,7 @@ export const WarmupPage: React.FC = () => {
     setFormOpen(true);
   };
 
-  const activePlans = plans.filter((p) => p.status === 'running' || p.isActive);
+  const activePlans = plans.filter((p) => p.status === 'running');
   const connectedSessions = sessions.filter((sx) => sx.status === 'connected');
 
   return (
@@ -1402,9 +1523,9 @@ export const WarmupPage: React.FC = () => {
               key={plan.id}
               plan={plan}
               actionLoading={actionLoading === plan.id}
-              onStart={() => act(plan.id, () => warmupService.start(plan.id), 'Aquecimento iniciado!')}
-              onPause={() => act(plan.id, () => warmupService.pause(plan.id), 'Aquecimento pausado')}
-              onStop={() => act(plan.id, () => warmupService.stop(plan.id), 'Aquecimento parado')}
+              onStart={() => act(plan.id, () => warmupService.start(plan.id), 'Aquecimento iniciado!', 'running')}
+              onPause={() => act(plan.id, () => warmupService.pause(plan.id), 'Aquecimento pausado', 'paused')}
+              onStop={() => act(plan.id, () => warmupService.stop(plan.id), 'Aquecimento parado', 'idle')}
               onDelete={() => act(plan.id, () => warmupService.delete(plan.id), 'Plano excluído')}
               onEdit={() => handleEdit(plan)}
             />

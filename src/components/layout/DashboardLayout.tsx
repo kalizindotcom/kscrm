@@ -66,17 +66,21 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     let mounted = true;
     const socket = getSocket();
+    const refreshFromApi = () => {
+      warmupService.list().then((plans) => {
+        if (!mounted) return;
+        const running = new Set(
+          plans
+            .filter((p) => p.status === 'running')
+            .map((p) => p.id),
+        );
+        runningWarmupsRef.current = running;
+        setIsWarmingUp(running.size > 0);
+      }).catch(() => undefined);
+    };
 
-    warmupService.list().then((plans) => {
-      if (!mounted) return;
-      const running = new Set(
-        plans
-          .filter((p) => p.status === 'running' || p.isActive)
-          .map((p) => p.id),
-      );
-      runningWarmupsRef.current = running;
-      setIsWarmingUp(running.size > 0);
-    }).catch(() => undefined);
+    refreshFromApi();
+    const pollTimer = setInterval(refreshFromApi, 15_000);
 
     const handler = (data: any) => {
       if (!data?.planId) return;
@@ -92,6 +96,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     socket.on('warmup.progress', handler);
     return () => {
       mounted = false;
+      clearInterval(pollTimer);
       socket.off('warmup.progress', handler);
     };
   }, [setIsWarmingUp]);
