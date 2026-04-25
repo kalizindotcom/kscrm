@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSessionStore } from '@/store/useSessionStore';
 import { SessionHeader } from '@/components/live-view/SessionHeader';
+import { SessionSelector } from '@/components/live-view/SessionSelector';
 import { ChatList } from '@/components/live-view/ChatList';
 import { ChatWindow } from '@/components/live-view/ChatWindow';
 import { ContactSidebar } from '@/components/live-view/ContactSidebar';
@@ -18,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { playMessageSound } from '@/lib/notificationSound';
 
 export const LiveViewPage: React.FC = () => {
-  const { sessions, selectedSessionId } = useSessionStore();
+  const { sessions, selectedSessionId, selectSession } = useSessionStore();
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const selectedChatIdRef = useRef<string | null>(null);
   const [conversations, setConversations] = useState<LiveConversation[]>([]);
@@ -46,7 +47,9 @@ export const LiveViewPage: React.FC = () => {
   useEffect(() => { selectedChatIdRef.current = selectedChatId; }, [selectedChatId]);
 
   const activeSession =
-    sessions.find((s) => s.status === 'connected') || sessions.find((s) => s.id === selectedSessionId) || null;
+    sessions.find((s) => s.id === selectedSessionId && s.status === 'connected') ||
+    sessions.find((s) => s.status === 'connected') ||
+    null;
 
   const formatPhoneDisplay = (raw: string) => {
     const digits = raw.replace(/\D/g, '');
@@ -462,12 +465,19 @@ export const LiveViewPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] sm:h-[calc(100vh-140px)] gap-4 animate-in fade-in duration-500">
-      <SessionHeader
-        session={activeSession}
-        totalConversations={conversations.length}
-        lastUpdated={lastUpdated}
-        onShowLogs={handleShowLogs}
-      />
+      <div className="flex items-center justify-between gap-4">
+        <SessionHeader
+          session={activeSession}
+          totalConversations={conversations.length}
+          lastUpdated={lastUpdated}
+          onShowLogs={handleShowLogs}
+        />
+        <SessionSelector
+          sessions={sessions}
+          selectedSessionId={activeSession?.id || null}
+          onSelectSession={selectSession}
+        />
+      </div>
 
       <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden min-h-0">
         <div
