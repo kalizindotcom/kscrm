@@ -579,9 +579,9 @@ const WhatsAppPreview: React.FC<{
         setIsPaused(true);
         toast.info('Campanha pausada. O disparo atual será concluído.');
       } else {
-        await campaignService.resume(campaign.id);
+        const result = await campaignService.resume(campaign.id);
         setIsPaused(false);
-        toast.success('Campanha retomada.');
+        toast.success(result.message || `Campanha retomada: ${result.pending} pendentes`);
       }
     } catch (err: any) {
       toast.error(err?.message ?? 'Falha ao alterar estado da campanha');

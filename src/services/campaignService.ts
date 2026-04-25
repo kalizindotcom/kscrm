@@ -179,7 +179,14 @@ export const campaignService = {
     ),
   pause: (id: string) => apiClient.post<{ ok: boolean }>(`/api/campaigns/${id}/pause`),
   resume: (id: string) =>
-    apiClient.post<{ ok: boolean; status: string }>(`/api/campaigns/${id}/resume`),
+    apiClient.post<{
+      ok: boolean;
+      status: string;
+      pending: number;
+      sent: number;
+      failed: number;
+      message: string
+    }>(`/api/campaigns/${id}/resume`),
   cancel: (id: string) => apiClient.post<{ ok: boolean }>(`/api/campaigns/${id}/cancel`),
   retryFailed: (id: string, startNow = true) =>
     apiClient.post<{ reset: number; started: boolean }>(`/api/campaigns/${id}/retry-failed`, {

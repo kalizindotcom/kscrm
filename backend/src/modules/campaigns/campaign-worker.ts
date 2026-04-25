@@ -159,9 +159,14 @@ async function runLoop(controller: Controller): Promise<void> {
       try {
         // Session sanity: abort loop if session dropped
         if (!baileys.get(campaign.sessionId!)) {
-          await markTargetFailed(target.id, 'Sessão desconectada');
+          // Mark current target as pending again (not failed) so it can be retried
+          await prisma.campaignTarget.update({
+            where: { id: target.id },
+            data: { status: 'pending', claimedAt: null },
+          });
           await finalizeCampaign(campaignId, 'paused');
-          emitProgress(campaignId, { error: 'Sessão desconectada — campanha pausada' });
+          emitProgress(campaignId, { error: 'Sessão desconectada — campanha pausada automaticamente' });
+          await writeLog(campaignId, 'Sessão desconectada durante disparo. Use "Retomar" para continuar de onde parou.');
           return;
         }
 
@@ -306,11 +311,33 @@ async function markTargetFailed(targetId: string, message: string) {
   await prisma.campaignTarget.update({
     where: { id: targetId },
     data: {
-      status: 'failed', // Changed from 'pending' to 'failed'
+      status: 'failed',
       claimedAt: null,
       error: message.slice(0, 500)
     },
   });
+}
+
+async function writeLog(campaignId: string, message: string) {
+  try {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { sessionId: true }
+    });
+    if (campaign?.sessionId) {
+      await prisma.sessionLog.create({
+        data: {
+          sessionId: campaign.sessionId,
+          severity: 'warning',
+          message,
+          type: 'campaign',
+          origin: 'worker'
+        }
+      });
+    }
+  } catch (err) {
+    logger.warn({ err, campaignId }, 'failed to write campaign log');
+  }
 }
 
 async function finalizeCampaign(campaignId: string, status: string) {

@@ -740,8 +740,30 @@ export async function campaignsRoutes(app: FastifyInstance) {
       throw new AppError('Sessão não está conectada', 400, 'SESSION_NOT_CONNECTED');
     }
 
+    // Count pending targets to inform user
+    const pending = await prisma.campaignTarget.count({
+      where: { campaignId: id, status: { in: ['pending', 'sending'] } },
+    });
+
+    if (pending === 0) {
+      throw new AppError('Nenhum destinatário pendente para retomar', 400, 'NO_PENDING_TARGETS');
+    }
+
+    // Get progress info
+    const [sent, failed] = await Promise.all([
+      prisma.campaignTarget.count({ where: { campaignId: id, status: 'sent' } }),
+      prisma.campaignTarget.count({ where: { campaignId: id, status: 'failed' } }),
+    ]);
+
     await startCampaign(id);
-    return { ok: true, status: 'running' };
+    return {
+      ok: true,
+      status: 'running',
+      pending,
+      sent,
+      failed,
+      message: `Retomando disparo: ${pending} pendentes, ${sent} enviados, ${failed} falhados`
+    };
   });
 
   // ── Cancel (mark 'cancelled', keep history) ───────────────────────────────
