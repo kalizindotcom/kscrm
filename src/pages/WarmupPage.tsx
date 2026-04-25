@@ -3,7 +3,7 @@ import {
   Flame, Plus, Play, Pause, Square, Trash2, BarChart2, RefreshCw,
   CheckCircle2, AlertCircle, Loader2, X, ChevronDown, ChevronUp,
   Mic, Image as ImageIcon, Users, MessageSquare, Zap, Calendar, Settings2,
-  Activity, TrendingUp, Shield, Radio, AlertTriangle, ArrowDown, Clock,
+  Activity, TrendingUp, Shield, Radio, ArrowDown, Clock,
   Wifi, WifiOff,
 } from 'lucide-react';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
@@ -66,6 +66,11 @@ function hashIndex(str: string, modulo: number): number {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
   return Math.abs(h) % modulo;
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
 // ─── Chip Health Gauge ────────────────────────────────────────────────────────
@@ -199,6 +204,10 @@ function ChatBubble({ bubble, sessionIndex, sessionInitial }: { bubble: Bubble; 
   );
 }
 
+function buildLiveMessageKey(item: { fromId: string; timestamp: string; status: string; mediaType: string; message: string }): string {
+  return `${item.fromId}|${item.timestamp}|${item.status}|${item.mediaType}|${item.message}`;
+}
+
 function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; sessions: string[]; isRunning: boolean }) {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [typing, setTyping] = useState(false);
@@ -207,6 +216,7 @@ function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; session
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout>>();
+  const seenKeysRef = useRef<Set<string>>(new Set());
 
   const sessionIndexOf = useCallback((id: string) => {
     const idx = sessions.indexOf(id);
@@ -220,6 +230,7 @@ function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; session
     try {
       const res = await warmupService.logs(planId, 1, 25);
       if (!res?.items?.length) {
+        seenKeysRef.current.clear();
         setBubbles([]);
         return;
       }
@@ -232,6 +243,15 @@ function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; session
         mediaType: (log.mediaType ?? 'text') as 'text' | 'image' | 'audio',
         timestamp: log.sentAt,
       }));
+      seenKeysRef.current = new Set(
+        initial.map((b) => buildLiveMessageKey({
+          fromId: b.fromId,
+          timestamp: b.timestamp,
+          status: b.status,
+          mediaType: b.mediaType,
+          message: b.message,
+        })),
+      );
       setBubbles(initial);
     } catch (err) {
       console.warn('[LiveChatFeed] load logs failed:', err);
@@ -257,10 +277,22 @@ function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; session
 
     const handleMsg = (data: WarmupMessage) => {
       if (!data || data.planId !== planId) return;
+      const liveKey = buildLiveMessageKey({
+        fromId: data.fromId,
+        timestamp: data.timestamp,
+        status: data.status,
+        mediaType: data.mediaType,
+        message: data.message,
+      });
+      if (seenKeysRef.current.has(liveKey)) return;
+
       clearTimeout(typingTimer.current);
       setTyping(false);
       setBubbles((prev) => {
-        // Avoid duplicate from initial fetch race
+        seenKeysRef.current.add(liveKey);
+        if (seenKeysRef.current.size > 500) {
+          seenKeysRef.current = new Set(Array.from(seenKeysRef.current).slice(-300));
+        }
         const next = [...prev, {
           id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           fromId: data.fromId,
@@ -485,22 +517,25 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
     };
   }, [plan.id, loadStats]);
 
+  const effectiveStatus = plan.isActive ? 'running' : plan.status;
+
   // Periodic refetch every 60s while running, in case WS misses an event
   useEffect(() => {
-    if (plan.status !== 'running') return;
+    if (effectiveStatus !== 'running') return;
     const t = setInterval(loadStats, 60_000);
     return () => clearInterval(t);
-  }, [plan.status, loadStats]);
+  }, [effectiveStatus, loadStats]);
 
-  const cfg = STATUS_CFG[plan.status] ?? STATUS_CFG.idle;
-  const isRunning = plan.status === 'running';
-  const isPaused = plan.status === 'paused';
-  const isIdle = plan.status === 'idle';
+  const cfg = STATUS_CFG[effectiveStatus] ?? STATUS_CFG.idle;
+  const isRunning = effectiveStatus === 'running';
+  const isPaused = effectiveStatus === 'paused';
+  const isIdle = effectiveStatus === 'idle';
   const hasStarted = !!plan.startedAt;
 
   const quota = (() => {
     if (plan.durationDays <= 1) return plan.maxMsgsPerDay;
-    const prog = Math.min(plan.currentDay, plan.durationDays) / plan.durationDays;
+    const dayIndex = Math.max(1, Math.min(plan.currentDay, plan.durationDays));
+    const prog = (dayIndex - 1) / (plan.durationDays - 1);
     return Math.round(plan.startMsgsPerDay + (plan.maxMsgsPerDay - plan.startMsgsPerDay) * prog);
   })();
 
@@ -884,6 +919,22 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
   const update = <K extends keyof PlanFormState>(k: K, v: PlanFormState[K]) =>
     setS((p) => ({ ...p, [k]: v }));
 
+  type NumericField =
+    | 'durationDays'
+    | 'startMsgsPerDay'
+    | 'maxMsgsPerDay'
+    | 'intervalMin'
+    | 'intervalMax'
+    | 'mediaFreq'
+    | 'audioFreq';
+
+  const updateNumber = (field: NumericField, min: number, max: number) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const parsed = Number.parseInt(e.target.value, 10);
+      if (Number.isNaN(parsed)) return;
+      update(field, clampInt(parsed, min, max) as PlanFormState[NumericField]);
+    };
+
   const toggleSession = (id: string) =>
     setS((p) => ({
       ...p,
@@ -894,11 +945,18 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
-    if (!s.name.trim()) e.name = 'Nome obrigatório';
-    if (s.selectedSessions.length < 2) e.sessions = 'Selecione ao menos 2 sessões';
-    if (s.intervalMin > s.intervalMax) e.intervalMin = 'Intervalo mínimo deve ser ≤ máximo';
-    if (s.startMsgsPerDay > s.maxMsgsPerDay) e.startMsgsPerDay = 'Início deve ser ≤ máximo';
-    if (s.useGroup && !s.groupJid.trim()) e.groupJid = 'JID obrigatório no modo grupo';
+    if (!s.name.trim()) e.name = 'Nome obrigatorio';
+    if (s.selectedSessions.length < 2) e.sessions = 'Selecione ao menos 2 sessoes';
+    if (s.durationDays < 1 || s.durationDays > 90) e.durationDays = 'Duracao deve ficar entre 1 e 90 dias';
+    if (s.startMsgsPerDay < 1 || s.startMsgsPerDay > 50) e.startMsgsPerDay = 'Inicio deve ficar entre 1 e 50';
+    if (s.maxMsgsPerDay < 1 || s.maxMsgsPerDay > 200) e.maxMsgsPerDay = 'Maximo deve ficar entre 1 e 200';
+    if (s.intervalMin < 10 || s.intervalMin > 3600) e.intervalMin = 'Intervalo minimo deve ficar entre 10 e 3600';
+    if (s.intervalMax < 10 || s.intervalMax > 3600) e.intervalMax = 'Intervalo maximo deve ficar entre 10 e 3600';
+    if (s.intervalMin > s.intervalMax) e.intervalMin = 'Intervalo minimo deve ser <= maximo';
+    if (s.startMsgsPerDay > s.maxMsgsPerDay) e.startMsgsPerDay = 'Inicio deve ser <= maximo';
+    if (s.mediaEnabled && (s.mediaFreq < 3 || s.mediaFreq > 50)) e.mediaFreq = 'Frequencia de midia deve ficar entre 3 e 50';
+    if (s.audioEnabled && (s.audioFreq < 3 || s.audioFreq > 50)) e.audioFreq = 'Frequencia de audio deve ficar entre 3 e 50';
+    if (s.useGroup && !s.groupJid.trim()) e.groupJid = 'JID obrigatorio no modo grupo';
     if (s.useGroup && s.groupJid.trim() && !s.groupJid.endsWith('@g.us')) e.groupJid = 'JID deve terminar com @g.us';
     if (s.windowStart && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(s.windowStart)) e.windowStart = 'Formato HH:mm';
     if (s.windowEnd && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(s.windowEnd)) e.windowEnd = 'Formato HH:mm';
@@ -912,7 +970,12 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
     if (Object.keys(errs).length > 0) {
       toast.error(Object.values(errs)[0]);
       // jump to tab where the first error is
-      if (errs.name || errs.sessions || errs.intervalMin || errs.startMsgsPerDay || errs.groupJid || errs.windowStart || errs.windowEnd) {
+      if (errs.mediaFreq || errs.audioFreq) {
+        setTab('media');
+      } else if (
+        errs.name || errs.sessions || errs.durationDays || errs.startMsgsPerDay || errs.maxMsgsPerDay
+        || errs.intervalMin || errs.intervalMax || errs.groupJid || errs.windowStart || errs.windowEnd
+      ) {
         setTab('basic');
       }
       return;
@@ -1010,13 +1073,13 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5"><Label>Duração (dias)</Label><Input type="number" min={1} max={90} value={s.durationDays} onChange={(e) => update('durationDays', +e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Duração (dias)</Label><Input type="number" min={1} max={90} value={s.durationDays} onChange={updateNumber('durationDays', 1, 90)} /></div>
             <div className="space-y-1.5">
               <Label>Início msgs/dia</Label>
-              <Input type="number" min={1} max={50} value={s.startMsgsPerDay} onChange={(e) => update('startMsgsPerDay', +e.target.value)} />
+              <Input type="number" min={1} max={50} value={s.startMsgsPerDay} onChange={updateNumber('startMsgsPerDay', 1, 50)} />
               {errors.startMsgsPerDay && <p className="text-xs text-red-400">{errors.startMsgsPerDay}</p>}
             </div>
-            <div className="space-y-1.5"><Label>Máx msgs/dia</Label><Input type="number" min={1} max={200} value={s.maxMsgsPerDay} onChange={(e) => update('maxMsgsPerDay', +e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Máx msgs/dia</Label><Input type="number" min={1} max={200} value={s.maxMsgsPerDay} onChange={updateNumber('maxMsgsPerDay', 1, 200)} /></div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1038,10 +1101,10 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Intervalo mín (seg)</Label>
-              <Input type="number" min={10} max={3600} value={s.intervalMin} onChange={(e) => update('intervalMin', +e.target.value)} />
+              <Input type="number" min={10} max={3600} value={s.intervalMin} onChange={updateNumber('intervalMin', 10, 3600)} />
               {errors.intervalMin && <p className="text-xs text-red-400">{errors.intervalMin}</p>}
             </div>
-            <div className="space-y-1.5"><Label>Intervalo máx (seg)</Label><Input type="number" min={10} max={3600} value={s.intervalMax} onChange={(e) => update('intervalMax', +e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Intervalo máx (seg)</Label><Input type="number" min={10} max={3600} value={s.intervalMax} onChange={updateNumber('intervalMax', 10, 3600)} /></div>
           </div>
 
           {/* Group mode */}
@@ -1087,7 +1150,8 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
             {s.mediaEnabled && (
               <div className="space-y-1.5">
                 <Label className="text-xs">Frequência — enviar imagem a cada N mensagens (mín. 3)</Label>
-                <Input type="number" min={3} max={50} value={s.mediaFreq} onChange={(e) => update('mediaFreq', Math.max(3, +e.target.value))} />
+                <Input type="number" min={3} max={50} value={s.mediaFreq} onChange={updateNumber('mediaFreq', 3, 50)} />
+                {errors.mediaFreq && <p className="text-xs text-red-400">{errors.mediaFreq}</p>}
               </div>
             )}
           </div>
@@ -1109,7 +1173,8 @@ function PlanForm({ initial, sessions, onSave, onClose, loading }: {
             {s.audioEnabled && (
               <div className="space-y-1.5">
                 <Label className="text-xs">Frequência — enviar áudio a cada N mensagens (mín. 3)</Label>
-                <Input type="number" min={3} max={50} value={s.audioFreq} onChange={(e) => update('audioFreq', Math.max(3, +e.target.value))} />
+                <Input type="number" min={3} max={50} value={s.audioFreq} onChange={updateNumber('audioFreq', 3, 50)} />
+                {errors.audioFreq && <p className="text-xs text-red-400">{errors.audioFreq}</p>}
               </div>
             )}
           </div>
@@ -1193,14 +1258,32 @@ export const WarmupPage: React.FC = () => {
   useEffect(() => {
     const socket = getSocket();
     const handler = (data: any) => {
-      if (!data?.status) return;
-      const terminal = ['idle', 'paused', 'completed'];
-      if (terminal.includes(data.status) || data.completed === true || data.paused === true || data.stopped === true) {
-        clearTimeout(reloadTimer.current);
-        reloadTimer.current = setTimeout(() => {
-          warmupService.list().then(setPlans).catch(() => {});
-        }, 500);
+      if (!data?.planId) return;
+      const nextStatus = data.completed === true
+        ? 'completed'
+        : data.paused === true
+          ? 'paused'
+          : data.stopped === true
+            ? 'idle'
+            : data.status;
+
+      if (nextStatus) {
+        setPlans((prev) => prev.map((plan) => (
+          plan.id !== data.planId
+            ? plan
+            : {
+                ...plan,
+                status: nextStatus,
+                isActive: nextStatus === 'running',
+                currentDay: typeof data.currentDay === 'number' ? data.currentDay : plan.currentDay,
+              }
+        )));
       }
+
+      clearTimeout(reloadTimer.current);
+      reloadTimer.current = setTimeout(() => {
+        warmupService.list().then(setPlans).catch(() => {});
+      }, nextStatus === 'running' ? 1200 : 500);
     };
     socket.on('warmup.progress', handler);
     return () => {
@@ -1234,7 +1317,7 @@ export const WarmupPage: React.FC = () => {
   };
 
   const handleEdit = (plan: WarmupPlan) => {
-    if (plan.status === 'running') {
+    if (plan.status === 'running' || plan.isActive) {
       toast.error('Pare o aquecimento antes de editar');
       return;
     }
@@ -1242,7 +1325,7 @@ export const WarmupPage: React.FC = () => {
     setFormOpen(true);
   };
 
-  const activePlans = plans.filter((p) => p.status === 'running');
+  const activePlans = plans.filter((p) => p.status === 'running' || p.isActive);
   const connectedSessions = sessions.filter((sx) => sx.status === 'connected');
 
   return (

@@ -69,6 +69,15 @@ type ControllerState = 'running' | 'stopping' | 'pausing';
 interface Controller { planId: string; state: ControllerState; done: Promise<void> }
 const controllers = new Map<string, Controller>();
 
+async function sleepWithController(controller: Controller, ms: number, stepMs = 1_000): Promise<void> {
+  let remaining = Math.max(0, ms);
+  while (remaining > 0 && controller.state === 'running') {
+    const chunk = Math.min(stepMs, remaining);
+    await sleep(chunk);
+    remaining -= chunk;
+  }
+}
+
 export function isActive(planId: string): boolean { return controllers.has(planId); }
 
 export function stopWarmup(planId: string): boolean {
@@ -103,7 +112,8 @@ export function calcChipHealth(plan: {
 function dailyQuota(plan: { currentDay: number; durationDays: number; startMsgsPerDay: number; maxMsgsPerDay: number }): number {
   const { currentDay, durationDays, startMsgsPerDay, maxMsgsPerDay } = plan;
   if (durationDays <= 1) return maxMsgsPerDay;
-  const progress = Math.min(currentDay, durationDays) / durationDays;
+  const dayIndex = Math.max(1, Math.min(currentDay, durationDays));
+  const progress = (dayIndex - 1) / (durationDays - 1);
   return Math.round(startMsgsPerDay + (maxMsgsPerDay - startMsgsPerDay) * progress);
 }
 
@@ -125,10 +135,11 @@ async function emitProgress(planId: string, extra: Record<string, unknown> = {})
   try {
     const plan = await prisma.warmupPlan.findUnique({ where: { id: planId } });
     if (!plan) return;
-    const todayCount = await prisma.warmupLog.count({
-      where: { planId, sentAt: { gte: new Date(new Date().setUTCHours(0, 0, 0, 0)) } },
-    });
-    const [sent, failed] = await Promise.all([
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const [todayCount, todayFailed, sent, failed] = await Promise.all([
+      prisma.warmupLog.count({ where: { planId, status: 'sent', sentAt: { gte: todayStart } } }),
+      prisma.warmupLog.count({ where: { planId, status: 'failed', sentAt: { gte: todayStart } } }),
       prisma.warmupLog.count({ where: { planId, status: 'sent' } }),
       prisma.warmupLog.count({ where: { planId, status: 'failed' } }),
     ]);
@@ -136,7 +147,7 @@ async function emitProgress(planId: string, extra: Record<string, unknown> = {})
     emitToUser(plan.userId, 'warmup.progress', {
       planId, status: plan.status, currentDay: plan.currentDay,
       durationDays: plan.durationDays, todayCount, todayQuota: dailyQuota(plan),
-      sent, failed, chipHealth, ...extra,
+      todayFailed, sent, failed, chipHealth, ...extra,
     });
   } catch { /* non-critical */ }
 }
@@ -171,7 +182,7 @@ async function runLoop(controller: Controller): Promise<void> {
 
       if (!isWithinWindow(plan.windowStart, plan.windowEnd)) {
         await emitProgress(planId, { waiting: 'Fora da janela de envio' });
-        await sleep(60_000);
+        await sleepWithController(controller, 60_000);
         continue;
       }
 
@@ -185,16 +196,8 @@ async function runLoop(controller: Controller): Promise<void> {
 
       // Daily quota
       const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-      const todayCount = await prisma.warmupLog.count({ where: { planId, sentAt: { gte: todayStart } } });
+      const todayCount = await prisma.warmupLog.count({ where: { planId, status: 'sent', sentAt: { gte: todayStart } } });
       const quota = dailyQuota({ ...plan, currentDay: newDay });
-
-      if (todayCount >= quota) {
-        const tomorrow = new Date(todayStart.getTime() + 86_400_000);
-        const waitMs = Math.max(0, tomorrow.getTime() - Date.now());
-        await emitProgress(planId, { waiting: `Cota do dia atingida (${todayCount}/${quota})` });
-        await sleep(Math.min(waitMs, 30 * 60_000));
-        continue;
-      }
 
       // Plan completion
       if (newDay >= plan.durationDays && todayCount >= quota) {
@@ -203,11 +206,19 @@ async function runLoop(controller: Controller): Promise<void> {
         break;
       }
 
+      if (todayCount >= quota) {
+        const tomorrow = new Date(todayStart.getTime() + 86_400_000);
+        const waitMs = Math.max(0, tomorrow.getTime() - Date.now());
+        await emitProgress(planId, { waiting: `Cota do dia atingida (${todayCount}/${quota})` });
+        await sleepWithController(controller, Math.min(waitMs, 30 * 60_000));
+        continue;
+      }
+
       // Connected sessions
       const connected = plan.sessionIds.filter((sid) => !!getSession(sid));
       if (connected.length < 2) {
         await emitProgress(planId, { waiting: 'Aguardando ao menos 2 sessões conectadas' });
-        await sleep(30_000);
+        await sleepWithController(controller, 30_000);
         continue;
       }
 
@@ -222,7 +233,10 @@ async function runLoop(controller: Controller): Promise<void> {
         prisma.session.findUnique({ where: { id: toId }, select: { phoneNumber: true, name: true } }),
       ]);
 
-      if (!fromSession?.phoneNumber || !toSession?.phoneNumber) { await sleep(10_000); continue; }
+      if (!fromSession?.phoneNumber || !toSession?.phoneNumber) {
+        await sleepWithController(controller, 10_000);
+        continue;
+      }
 
       const text = pickMessage(plan.customMessages ?? []);
 
@@ -280,7 +294,7 @@ async function runLoop(controller: Controller): Promise<void> {
 
       if (controller.state === 'running') {
         const waitMs = rnd(plan.intervalMin * 1000, plan.intervalMax * 1000);
-        await sleep(waitMs);
+        await sleepWithController(controller, waitMs);
       }
     }
 
@@ -304,14 +318,23 @@ export async function startWarmup(planId: string): Promise<void> {
   if (!plan) throw new Error('Plano não encontrado');
   if (plan.sessionIds.length < 2) throw new Error('Selecione ao menos 2 sessões');
 
+  const now = Date.now();
+  const adjustedStartedAt = (() => {
+    if (!plan.startedAt) return new Date(now);
+    if (!plan.pausedAt) return plan.startedAt;
+    const pausedMs = Math.max(0, now - plan.pausedAt.getTime());
+    return new Date(plan.startedAt.getTime() + pausedMs);
+  })();
+
   await prisma.warmupPlan.update({
     where: { id: planId },
-    data: { status: 'running', startedAt: plan.startedAt ?? new Date(), pausedAt: null },
+    data: { status: 'running', startedAt: adjustedStartedAt, pausedAt: null },
   });
 
   const controller: Controller = { planId, state: 'running', done: Promise.resolve() };
-  controller.done = runLoop(controller).catch((err) => logger.error({ err, planId }, 'warmup worker crashed'));
   controllers.set(planId, controller);
+  await emitProgress(planId, { started: true });
+  controller.done = runLoop(controller).catch((err) => logger.error({ err, planId }, 'warmup worker crashed'));
 }
 
 export async function recoverWarmups(): Promise<void> {

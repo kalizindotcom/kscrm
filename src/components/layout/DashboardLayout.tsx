@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -30,7 +30,7 @@ import {
 import { useAppStore, useAuthStore } from '../../store';
 import { cn } from '../../lib/utils';
 import { getSocket } from '../../services/wsClient';
-import { FlameButton } from '../ui/FlameButton';
+import { warmupService } from '../../services/warmupService';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,14 +61,39 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const [searchValue, setSearchValue] = useState("");
   const [isSearching, setIsSearching] = useState(false);
 
+  const runningWarmupsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
+    let mounted = true;
     const socket = getSocket();
+
+    warmupService.list().then((plans) => {
+      if (!mounted) return;
+      const running = new Set(
+        plans
+          .filter((p) => p.status === 'running' || p.isActive)
+          .map((p) => p.id),
+      );
+      runningWarmupsRef.current = running;
+      setIsWarmingUp(running.size > 0);
+    }).catch(() => undefined);
+
     const handler = (data: any) => {
-      if (data.status === 'running') setIsWarmingUp(true);
-      else if (data.status === 'idle' || data.status === 'paused' || data.status === 'completed') setIsWarmingUp(false);
+      if (!data?.planId) return;
+      const next = new Set(runningWarmupsRef.current);
+      const terminal = data.status === 'idle' || data.status === 'paused' || data.status === 'completed'
+        || data.completed === true || data.paused === true || data.stopped === true;
+      if (data.status === 'running' && !terminal) next.add(data.planId);
+      if (terminal) next.delete(data.planId);
+      runningWarmupsRef.current = next;
+      setIsWarmingUp(next.size > 0);
     };
+
     socket.on('warmup.progress', handler);
-    return () => { socket.off('warmup.progress', handler); };
+    return () => {
+      mounted = false;
+      socket.off('warmup.progress', handler);
+    };
   }, [setIsWarmingUp]);
 
   const handleLogout = async () => {
@@ -81,8 +106,6 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     if (!searchValue.trim()) return;
     
     setIsSearching(true);
-    // Simulating search behavior
-    console.log("Searching for:", searchValue);
     setTimeout(() => setIsSearching(false), 800);
   };
 

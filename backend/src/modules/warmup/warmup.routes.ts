@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { startWarmup, stopWarmup, pauseWarmup, isActive, calcChipHealth } from './warmup-worker.js';
+import { get as getSession } from '../../providers/baileys/manager.js';
+
+const HH_MM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
 const baseSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -25,37 +28,43 @@ const baseSchema = z.object({
 
 const createSchema = baseSchema.superRefine((data, ctx) => {
   if (data.intervalMin > data.intervalMax) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo mínimo deve ser ≤ máximo' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo minimo deve ser <= maximo' });
   }
   if (data.startMsgsPerDay > data.maxMsgsPerDay) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Início deve ser ≤ máximo de msgs/dia' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Inicio deve ser <= maximo de msgs/dia' });
   }
   if (data.useGroup && !data.groupJid) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo é obrigatório quando modo grupo está ativo' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo e obrigatorio quando modo grupo esta ativo' });
   }
   if (data.useGroup && data.groupJid && !data.groupJid.endsWith('@g.us')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo deve terminar com @g.us' });
   }
-  if (data.windowStart && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(data.windowStart)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowStart'], message: 'Formato inválido (HH:mm)' });
+  if (data.windowStart && !HH_MM_RE.test(data.windowStart)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowStart'], message: 'Formato invalido (HH:mm)' });
   }
-  if (data.windowEnd && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(data.windowEnd)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowEnd'], message: 'Formato inválido (HH:mm)' });
+  if (data.windowEnd && !HH_MM_RE.test(data.windowEnd)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowEnd'], message: 'Formato invalido (HH:mm)' });
   }
 });
 
 const updateSchema = baseSchema.partial().superRefine((data, ctx) => {
   if (data.intervalMin !== undefined && data.intervalMax !== undefined && data.intervalMin > data.intervalMax) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo mínimo deve ser ≤ máximo' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo minimo deve ser <= maximo' });
   }
   if (data.startMsgsPerDay !== undefined && data.maxMsgsPerDay !== undefined && data.startMsgsPerDay > data.maxMsgsPerDay) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Início deve ser ≤ máximo de msgs/dia' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Inicio deve ser <= maximo de msgs/dia' });
   }
   if (data.useGroup && !data.groupJid) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo é obrigatório quando modo grupo está ativo' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo e obrigatorio quando modo grupo esta ativo' });
   }
   if (data.useGroup && data.groupJid && !data.groupJid.endsWith('@g.us')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo deve terminar com @g.us' });
+  }
+  if (data.windowStart && !HH_MM_RE.test(data.windowStart)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowStart'], message: 'Formato invalido (HH:mm)' });
+  }
+  if (data.windowEnd && !HH_MM_RE.test(data.windowEnd)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowEnd'], message: 'Formato invalido (HH:mm)' });
   }
 });
 
@@ -97,7 +106,7 @@ export async function warmupRoutes(app: FastifyInstance) {
       select: { id: true },
     });
     if (sessions.length < 2) {
-      return reply.status(400).send({ error: 'Sessões inválidas ou insuficientes' });
+      return reply.status(400).send({ error: 'Sessoes invalidas ou insuficientes' });
     }
 
     const plan = await prisma.warmupPlan.create({ data: { ...body, userId } });
@@ -126,7 +135,39 @@ export async function warmupRoutes(app: FastifyInstance) {
       const first = parsed.error.errors[0];
       return reply.status(400).send({ error: first?.message ?? 'Dados inválidos' });
     }
-    const updated = await prisma.warmupPlan.update({ where: { id }, data: parsed.data });
+    const patch = parsed.data;
+
+    if (patch.sessionIds) {
+      const sessions = await prisma.session.findMany({
+        where: { id: { in: patch.sessionIds }, userId },
+        select: { id: true },
+      });
+      if (sessions.length < 2) {
+        return reply.status(400).send({ error: 'Sessoes invalidas ou insuficientes' });
+      }
+    }
+
+    const merged = { ...plan, ...patch };
+    if (merged.intervalMin > merged.intervalMax) {
+      return reply.status(400).send({ error: 'Intervalo minimo deve ser <= maximo' });
+    }
+    if (merged.startMsgsPerDay > merged.maxMsgsPerDay) {
+      return reply.status(400).send({ error: 'Inicio deve ser <= maximo de msgs/dia' });
+    }
+    if (merged.useGroup && !merged.groupJid) {
+      return reply.status(400).send({ error: 'JID do grupo e obrigatorio quando modo grupo esta ativo' });
+    }
+    if (merged.useGroup && merged.groupJid && !merged.groupJid.endsWith('@g.us')) {
+      return reply.status(400).send({ error: 'JID do grupo deve terminar com @g.us' });
+    }
+    if (merged.windowStart && !HH_MM_RE.test(merged.windowStart)) {
+      return reply.status(400).send({ error: 'Formato invalido (HH:mm) em janela inicio' });
+    }
+    if (merged.windowEnd && !HH_MM_RE.test(merged.windowEnd)) {
+      return reply.status(400).send({ error: 'Formato invalido (HH:mm) em janela fim' });
+    }
+
+    const updated = await prisma.warmupPlan.update({ where: { id }, data: patch });
     return updated;
   });
 
@@ -147,6 +188,10 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
+    const connectedCount = plan.sessionIds.filter((sid) => !!getSession(sid)).length;
+    if (connectedCount < 2) {
+      return reply.status(400).send({ error: 'Conecte ao menos 2 sessoes antes de iniciar o aquecimento' });
+    }
     await startWarmup(id);
     return reply.send({ ok: true, status: 'running' });
   });
@@ -157,10 +202,12 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    pauseWarmup(id);
-    // Update DB immediately so frontend reload sees the new status right away
-    await prisma.warmupPlan.update({ where: { id }, data: { status: 'paused', pausedAt: new Date() } });
-    return reply.send({ ok: true, status: 'paused' });
+    const changed = pauseWarmup(id);
+    if (!changed) {
+      await prisma.warmupPlan.update({ where: { id }, data: { status: 'paused', pausedAt: new Date() } });
+      return reply.send({ ok: true, status: 'paused' });
+    }
+    return reply.send({ ok: true, status: 'pausing' });
   });
 
   // ── Stop ────────────────────────────────────────────────────────────────────
@@ -169,10 +216,12 @@ export async function warmupRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
-    stopWarmup(id);
-    // Update DB immediately so frontend reload sees the new status right away
-    await prisma.warmupPlan.update({ where: { id }, data: { status: 'idle' } });
-    return reply.send({ ok: true, status: 'idle' });
+    const changed = stopWarmup(id);
+    if (!changed) {
+      await prisma.warmupPlan.update({ where: { id }, data: { status: 'idle' } });
+      return reply.send({ ok: true, status: 'idle' });
+    }
+    return reply.send({ ok: true, status: 'stopping' });
   });
 
   // ── Logs ────────────────────────────────────────────────────────────────────
@@ -206,12 +255,13 @@ export async function warmupRoutes(app: FastifyInstance) {
       : [];
     const sessionMap = new Map(sessions.map((s) => [s.id, s]));
 
+    const groupTargetLabel = plan.useGroup && plan.groupJid ? `Grupo (${plan.groupJid})` : null;
     const items = rawItems.map((log) => ({
       ...log,
       fromName: sessionMap.get(log.fromSession)?.name ?? null,
-      toName: sessionMap.get(log.toSession)?.name ?? null,
+      toName: groupTargetLabel ?? sessionMap.get(log.toSession)?.name ?? null,
       fromPhone: sessionMap.get(log.fromSession)?.phoneNumber ?? null,
-      toPhone: sessionMap.get(log.toSession)?.phoneNumber ?? null,
+      toPhone: plan.useGroup ? plan.groupJid ?? null : sessionMap.get(log.toSession)?.phoneNumber ?? null,
     }));
 
     // Daily stats (last 14 days)
@@ -306,3 +356,4 @@ export async function warmupRoutes(app: FastifyInstance) {
     };
   });
 }
+

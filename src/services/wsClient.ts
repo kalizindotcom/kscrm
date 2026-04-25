@@ -4,14 +4,25 @@ import { useAuthStore } from '@/store';
 const WS_URL = (import.meta.env.VITE_WS_URL as string | undefined) ?? (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
 let socket: Socket | null = null;
+let socketToken: string | null = null;
 
 export function getSocket(): Socket {
-  if (socket) return socket;
+  const token = useAuthStore.getState().token ?? null;
 
-  const token = useAuthStore.getState().token;
+  if (socket) {
+    if (socketToken !== token) {
+      socketToken = token;
+      socket.auth = { token: token ?? undefined };
+      if (socket.connected) socket.disconnect();
+      socket.connect();
+    }
+    return socket;
+  }
+
+  socketToken = token;
   socket = io(WS_URL, {
     path: '/ws',
-    auth: { token },
+    auth: { token: token ?? undefined },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,
@@ -29,6 +40,7 @@ export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
+    socketToken = null;
   }
 }
 
