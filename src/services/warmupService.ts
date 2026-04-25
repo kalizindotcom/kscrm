@@ -55,6 +55,10 @@ export interface WarmupLog {
   planId: string;
   fromSession: string;
   toSession: string;
+  fromName?: string | null;
+  toName?: string | null;
+  fromPhone?: string | null;
+  toPhone?: string | null;
   message: string;
   status: 'sent' | 'failed';
   mediaType: 'text' | 'image' | 'audio';
@@ -66,6 +70,9 @@ export interface WarmupSessionDetail {
   name: string;
   phoneNumber?: string | null;
   status: string;
+  sent?: number;
+  failed?: number;
+  sessionHealth?: number;
 }
 
 export interface WarmupStats {
@@ -76,6 +83,7 @@ export interface WarmupStats {
   currentDay: number;
   durationDays: number;
   chipHealth: number;
+  hasStarted: boolean;
   sessions: WarmupSessionDetail[];
 }
 

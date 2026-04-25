@@ -4,8 +4,8 @@ import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { startWarmup, stopWarmup, pauseWarmup, isActive, calcChipHealth } from './warmup-worker.js';
 
-const createSchema = z.object({
-  name: z.string().min(1),
+const baseSchema = z.object({
+  name: z.string().min(1, 'Nome é obrigatório'),
   sessionIds: z.array(z.string()).min(2, 'Selecione ao menos 2 sessões'),
   durationDays: z.coerce.number().int().min(1).max(90).default(14),
   startMsgsPerDay: z.coerce.number().int().min(1).max(50).default(5),
@@ -17,11 +17,57 @@ const createSchema = z.object({
   useGroup: z.boolean().optional().default(false),
   groupJid: z.string().optional(),
   mediaEnabled: z.boolean().optional().default(false),
-  mediaFreq: z.coerce.number().int().min(1).max(50).optional().default(5),
+  mediaFreq: z.coerce.number().int().min(3).max(50).optional().default(5),
   audioEnabled: z.boolean().optional().default(false),
-  audioFreq: z.coerce.number().int().min(1).max(50).optional().default(7),
+  audioFreq: z.coerce.number().int().min(3).max(50).optional().default(7),
   customMessages: z.array(z.string()).optional().default([]),
 });
+
+const createSchema = baseSchema.superRefine((data, ctx) => {
+  if (data.intervalMin > data.intervalMax) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo mínimo deve ser ≤ máximo' });
+  }
+  if (data.startMsgsPerDay > data.maxMsgsPerDay) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Início deve ser ≤ máximo de msgs/dia' });
+  }
+  if (data.useGroup && !data.groupJid) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo é obrigatório quando modo grupo está ativo' });
+  }
+  if (data.useGroup && data.groupJid && !data.groupJid.endsWith('@g.us')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo deve terminar com @g.us' });
+  }
+  if (data.windowStart && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(data.windowStart)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowStart'], message: 'Formato inválido (HH:mm)' });
+  }
+  if (data.windowEnd && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(data.windowEnd)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windowEnd'], message: 'Formato inválido (HH:mm)' });
+  }
+});
+
+const updateSchema = baseSchema.partial().superRefine((data, ctx) => {
+  if (data.intervalMin !== undefined && data.intervalMax !== undefined && data.intervalMin > data.intervalMax) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['intervalMin'], message: 'Intervalo mínimo deve ser ≤ máximo' });
+  }
+  if (data.startMsgsPerDay !== undefined && data.maxMsgsPerDay !== undefined && data.startMsgsPerDay > data.maxMsgsPerDay) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startMsgsPerDay'], message: 'Início deve ser ≤ máximo de msgs/dia' });
+  }
+  if (data.useGroup && !data.groupJid) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo é obrigatório quando modo grupo está ativo' });
+  }
+  if (data.useGroup && data.groupJid && !data.groupJid.endsWith('@g.us')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['groupJid'], message: 'JID do grupo deve terminar com @g.us' });
+  }
+});
+
+// Per-session health calc — based on each session's own activity
+function calcSessionHealth(plan: { currentDay: number; durationDays: number; maxMsgsPerDay: number }, sent: number, failed: number): number {
+  const expectedShare = plan.durationDays * plan.maxMsgsPerDay;
+  const progressScore = Math.min(40, (sent / Math.max(1, expectedShare)) * 40);
+  const dayScore = Math.min(30, (plan.currentDay / Math.max(1, plan.durationDays)) * 30);
+  const successRate = sent / Math.max(1, sent + failed);
+  const qualityScore = successRate * 30;
+  return Math.max(5, Math.min(95, Math.round(progressScore + dayScore + qualityScore)));
+}
 
 export async function warmupRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
@@ -39,9 +85,13 @@ export async function warmupRoutes(app: FastifyInstance) {
   // ── Create plan ─────────────────────────────────────────────────────────────
   app.post('/api/warmup', async (req, reply) => {
     const userId = req.user!.sub;
-    const body = createSchema.parse(req.body);
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const first = parsed.error.errors[0];
+      return reply.status(400).send({ error: first?.message ?? 'Dados inválidos' });
+    }
+    const body = parsed.data;
 
-    // Validate sessions belong to user
     const sessions = await prisma.session.findMany({
       where: { id: { in: body.sessionIds }, userId },
       select: { id: true },
@@ -71,8 +121,12 @@ export async function warmupRoutes(app: FastifyInstance) {
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
     if (isActive(id)) return reply.status(400).send({ error: 'Pare o aquecimento antes de editar' });
 
-    const body = createSchema.partial().parse(req.body);
-    const updated = await prisma.warmupPlan.update({ where: { id }, data: body });
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const first = parsed.error.errors[0];
+      return reply.status(400).send({ error: first?.message ?? 'Dados inválidos' });
+    }
+    const updated = await prisma.warmupPlan.update({ where: { id }, data: parsed.data });
     return updated;
   });
 
@@ -134,7 +188,7 @@ export async function warmupRoutes(app: FastifyInstance) {
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
     if (!plan) return reply.status(404).send({ error: 'Plano não encontrado' });
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       prisma.warmupLog.findMany({
         where: { planId: id },
         orderBy: { sentAt: 'desc' },
@@ -143,6 +197,24 @@ export async function warmupRoutes(app: FastifyInstance) {
       }),
       prisma.warmupLog.count({ where: { planId: id } }),
     ]);
+
+    // Resolve session names for fromSession/toSession ids
+    const sessionIds = Array.from(new Set(rawItems.flatMap((l) => [l.fromSession, l.toSession])));
+    const sessions = sessionIds.length > 0
+      ? await prisma.session.findMany({
+          where: { id: { in: sessionIds } },
+          select: { id: true, name: true, phoneNumber: true },
+        })
+      : [];
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+
+    const items = rawItems.map((log) => ({
+      ...log,
+      fromName: sessionMap.get(log.fromSession)?.name ?? null,
+      toName: sessionMap.get(log.toSession)?.name ?? null,
+      fromPhone: sessionMap.get(log.fromSession)?.phoneNumber ?? null,
+      toPhone: sessionMap.get(log.toSession)?.phoneNumber ?? null,
+    }));
 
     // Daily stats (last 14 days)
     const dailyStats = await prisma.$queryRaw<{ day: string; sent: bigint; failed: bigint }[]>`
@@ -189,14 +261,50 @@ export async function warmupRoutes(app: FastifyInstance) {
       ? Math.min(100, Math.round((plan.currentDay / plan.durationDays) * 100))
       : 0;
 
-    const chipHealth = calcChipHealth(plan, total, failed);
+    const chipHealth = plan.startedAt ? calcChipHealth(plan, total, failed) : 0;
 
-    // Fetch session details
+    // Per-session health
+    const perSessionAgg = await prisma.warmupLog.groupBy({
+      by: ['fromSession', 'status'],
+      where: { planId: id },
+      _count: { _all: true },
+    });
+
+    const sessionStatsMap = new Map<string, { sent: number; failed: number }>();
+    for (const sid of plan.sessionIds) sessionStatsMap.set(sid, { sent: 0, failed: 0 });
+    for (const row of perSessionAgg) {
+      const cur = sessionStatsMap.get(row.fromSession) ?? { sent: 0, failed: 0 };
+      if (row.status === 'sent') cur.sent = row._count._all;
+      else if (row.status === 'failed') cur.failed = row._count._all;
+      sessionStatsMap.set(row.fromSession, cur);
+    }
+
     const sessions = await prisma.session.findMany({
       where: { id: { in: plan.sessionIds } },
       select: { id: true, name: true, phoneNumber: true, status: true },
     });
 
-    return { total, todayCount, failed, progress, currentDay: plan.currentDay, durationDays: plan.durationDays, chipHealth, sessions };
+    const sessionsWithHealth = sessions.map((s) => {
+      const agg = sessionStatsMap.get(s.id) ?? { sent: 0, failed: 0 };
+      const sessionHealth = plan.startedAt ? calcSessionHealth(plan, agg.sent, agg.failed) : 0;
+      return {
+        ...s,
+        sent: agg.sent,
+        failed: agg.failed,
+        sessionHealth,
+      };
+    });
+
+    return {
+      total,
+      todayCount,
+      failed,
+      progress,
+      currentDay: plan.currentDay,
+      durationDays: plan.durationDays,
+      chipHealth,
+      hasStarted: !!plan.startedAt,
+      sessions: sessionsWithHealth,
+    };
   });
 }

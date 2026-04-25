@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   Flame, Plus, Play, Pause, Square, Trash2, BarChart2, RefreshCw,
   CheckCircle2, AlertCircle, Loader2, X, ChevronDown, ChevronUp,
-  Mic, Image, Users, MessageSquare, Zap, Calendar, Settings2,
-  Activity, TrendingUp, Shield, Radio, AlertTriangle,
+  Mic, Image as ImageIcon, Users, MessageSquare, Zap, Calendar, Settings2,
+  Activity, TrendingUp, Shield, Radio, AlertTriangle, ArrowDown, Clock,
+  Wifi, WifiOff,
 } from 'lucide-react';
 import { Card, CardContent, Button, Badge } from '../components/ui/shared';
 import { Input } from '../components/ui/input';
@@ -14,12 +15,13 @@ import { toast } from 'sonner';
 import {
   warmupService, type WarmupPlan, type WarmupStats,
   type WarmupPlanPayload, type WarmupMessage, type WarmupLog,
+  type WarmupSessionDetail,
 } from '../services/warmupService';
 import { sessionService } from '../services/sessionService';
 import { getSocket } from '../services/wsClient';
 import { cn } from '../lib/utils';
 
-// ─── Keyframes (injected once) ───────────────────────────────────────────────
+// ─── Inline keyframes ─────────────────────────────────────────────────────────
 
 const STYLES = `
   @keyframes slideInBubble {
@@ -34,7 +36,37 @@ const STYLES = `
     0%, 60%, 100% { transform: translateY(0); }
     30%           { transform: translateY(-6px); }
   }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+    70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  }
 `;
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function safeFormatTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '--:--';
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function getInitialFromName(name: string): string {
+  if (!name) return '?';
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  // Use Array.from to handle emojis/multi-byte chars correctly
+  const chars = Array.from(trimmed);
+  const first = chars.find((c) => /[A-Za-zÀ-ÿ0-9]/.test(c));
+  return (first ?? chars[0] ?? '?').toUpperCase();
+}
+
+// Stable hash → color index for orphan/unknown senders
+function hashIndex(str: string, modulo: number): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  return Math.abs(h) % modulo;
+}
 
 // ─── Chip Health Gauge ────────────────────────────────────────────────────────
 
@@ -111,13 +143,13 @@ interface Bubble {
 }
 
 const BUBBLE_COLORS = [
-  { bg: 'bg-primary/15', border: 'border-primary/20', roundedOff: 'rounded-bl-sm' },
-  { bg: 'bg-secondary/15', border: 'border-secondary/20', roundedOff: 'rounded-br-sm' },
-  { bg: 'bg-purple-500/15', border: 'border-purple-500/20', roundedOff: 'rounded-bl-sm' },
-  { bg: 'bg-green-500/15', border: 'border-green-500/20', roundedOff: 'rounded-br-sm' },
+  { bg: 'bg-primary/15', border: 'border-primary/20', avatar: 'bg-primary' },
+  { bg: 'bg-secondary/15', border: 'border-secondary/20', avatar: 'bg-secondary' },
+  { bg: 'bg-purple-500/15', border: 'border-purple-500/20', avatar: 'bg-purple-500' },
+  { bg: 'bg-green-500/15', border: 'border-green-500/20', avatar: 'bg-green-600' },
+  { bg: 'bg-pink-500/15', border: 'border-pink-500/20', avatar: 'bg-pink-500' },
+  { bg: 'bg-cyan-500/15', border: 'border-cyan-500/20', avatar: 'bg-cyan-500' },
 ];
-
-const AVATAR_COLORS = ['bg-primary', 'bg-secondary', 'bg-purple-500', 'bg-green-600'];
 
 function TypingDots() {
   return (
@@ -136,7 +168,6 @@ function TypingDots() {
 function ChatBubble({ bubble, sessionIndex, sessionInitial }: { bubble: Bubble; sessionIndex: number; sessionInitial: string }) {
   const colorIdx = sessionIndex % BUBBLE_COLORS.length;
   const scheme = BUBBLE_COLORS[colorIdx];
-  const avatarColor = AVATAR_COLORS[colorIdx];
   const isLeft = sessionIndex % 2 === 0;
   const mediaIcon = bubble.mediaType === 'image' ? '🖼️ ' : bubble.mediaType === 'audio' ? '🎤 ' : '';
 
@@ -146,19 +177,21 @@ function ChatBubble({ bubble, sessionIndex, sessionInitial }: { bubble: Bubble; 
       style={{ animation: 'slideInBubble 0.35s ease-out' }}
     >
       <div
-        className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white', avatarColor)}
-        style={{ boxShadow: `0 0 8px ${avatarColor.includes('primary') ? 'hsl(var(--primary)/0.4)' : 'rgba(0,0,0,0.3)'}` }}
+        className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white', scheme.avatar)}
+        title={bubble.fromName}
       >
         {sessionInitial}
       </div>
       <div className={cn(
         'max-w-[72%] px-3 py-2 rounded-2xl text-sm leading-relaxed border',
-        scheme.bg, scheme.border, scheme.roundedOff,
+        scheme.bg, scheme.border,
+        isLeft ? 'rounded-bl-sm' : 'rounded-br-sm',
         bubble.status === 'failed' && 'opacity-60 border-red-500/40 bg-red-500/10',
       )}>
+        <div className="text-[10px] font-semibold opacity-70 mb-0.5">{bubble.fromName}</div>
         <span>{mediaIcon}{bubble.message}</span>
         <div className={cn('text-[10px] mt-0.5 opacity-50', isLeft ? 'text-left' : 'text-right')}>
-          {new Date(bubble.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          {safeFormatTime(bubble.timestamp)}
           {bubble.status === 'failed' && ' ⚠️'}
         </div>
       </div>
@@ -166,83 +199,148 @@ function ChatBubble({ bubble, sessionIndex, sessionInitial }: { bubble: Bubble; 
   );
 }
 
-function LiveChatFeed({ planId, sessions }: { planId: string; sessions: string[] }) {
+function LiveChatFeed({ planId, sessions, isRunning }: { planId: string; sessions: string[]; isRunning: boolean }) {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [typing, setTyping] = useState(false);
-  const [sessionNames, setSessionNames] = useState<Record<string, string>>({});
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const sessionIndexOf = useCallback((id: string) => {
     const idx = sessions.indexOf(id);
-    return idx >= 0 ? idx : 0;
+    if (idx >= 0) return idx;
+    // Orphan session — stable hash-based index past known sessions
+    return sessions.length + hashIndex(id, BUBBLE_COLORS.length);
   }, [sessions]);
 
-  useEffect(() => {
-    warmupService.logs(planId, 1, 20).then((res) => {
-      if (!res?.items?.length) return;
+  // Load initial logs
+  const loadLogs = useCallback(async () => {
+    try {
+      const res = await warmupService.logs(planId, 1, 25);
+      if (!res?.items?.length) {
+        setBubbles([]);
+        return;
+      }
       const initial: Bubble[] = [...res.items].reverse().map((log: WarmupLog) => ({
         id: log.id,
         fromId: log.fromSession,
-        fromName: log.fromSession.slice(-6),
+        fromName: log.fromName ?? `Sessão ${log.fromSession.slice(-4)}`,
         message: log.message,
         status: log.status,
         mediaType: (log.mediaType ?? 'text') as 'text' | 'image' | 'audio',
         timestamp: log.sentAt,
       }));
       setBubbles(initial);
-    }).catch((err) => console.warn('[LiveChatFeed] logs:', err));
+    } catch (err) {
+      console.warn('[LiveChatFeed] load logs failed:', err);
+    }
   }, [planId]);
 
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  // Polling fallback while running (every 30s)
+  useEffect(() => {
+    if (!isRunning) return;
+    const t = setInterval(loadLogs, 30_000);
+    return () => clearInterval(t);
+  }, [isRunning, loadLogs]);
+
+  // WS listeners
   useEffect(() => {
     const socket = getSocket();
+    setWsConnected(socket.connected);
+
+    const onConnect = () => setWsConnected(true);
+    const onDisconnect = () => setWsConnected(false);
+
     const handleMsg = (data: WarmupMessage) => {
-      if (data.planId !== planId) return;
+      if (!data || data.planId !== planId) return;
+      clearTimeout(typingTimer.current);
       setTyping(false);
       setBubbles((prev) => {
+        // Avoid duplicate from initial fetch race
         const next = [...prev, {
-          id: `${Date.now()}-${Math.random()}`,
+          id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           fromId: data.fromId,
-          fromName: data.fromName,
+          fromName: data.fromName ?? `Sessão ${data.fromId.slice(-4)}`,
           message: data.message,
           status: data.status,
           mediaType: data.mediaType,
           timestamp: data.timestamp,
         }];
-        return next.slice(-30);
+        return next.slice(-50);
       });
-      setSessionNames((prev) => ({ ...prev, [data.fromId]: data.fromName, [data.toId]: data.toName }));
     };
+
     const handleProgress = (data: any) => {
-      if (data.planId !== planId) return;
+      if (!data || data.planId !== planId) return;
       if (data.status === 'running' && !data.waiting) {
         setTyping(true);
-        setTimeout(() => setTyping(false), 4000);
+        clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => setTyping(false), 5000);
       } else {
         setTyping(false);
       }
     };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
     socket.on('warmup.message', handleMsg);
     socket.on('warmup.progress', handleProgress);
+
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
       socket.off('warmup.message', handleMsg);
       socket.off('warmup.progress', handleProgress);
+      clearTimeout(typingTimer.current);
     };
   }, [planId]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [bubbles, typing]);
+  // Smart scroll: only auto-scroll if user is near the bottom
+  const checkScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAutoScroll(distance < 80);
+  }, []);
 
-  const getInitial = (id: string, name: string) =>
-    (sessionNames[id] ?? name ?? id).charAt(0).toUpperCase();
+  useEffect(() => {
+    if (autoScroll) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [bubbles, typing, autoScroll]);
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    setAutoScroll(true);
+  };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-3 py-2 custom-scrollbar space-y-0.5">
+    <div className="flex flex-col h-full relative">
+      {/* Connection indicator */}
+      <div className="absolute top-1 right-2 z-10 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-background/60 backdrop-blur-sm">
+        {wsConnected ? (
+          <><Wifi className="w-2.5 h-2.5 text-green-400" /><span className="text-green-400">conectado</span></>
+        ) : (
+          <><WifiOff className="w-2.5 h-2.5 text-red-400" /><span className="text-red-400">offline</span></>
+        )}
+      </div>
+
+      <div
+        ref={containerRef}
+        onScroll={checkScroll}
+        className="flex-1 overflow-y-auto px-3 py-2 custom-scrollbar space-y-0.5"
+      >
         {bubbles.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-            <Radio className="w-8 h-8 opacity-30 animate-pulse" />
-            <p className="text-xs">Aguardando mensagens...</p>
+            <Radio className={cn('w-8 h-8 opacity-30', isRunning && 'animate-pulse')} />
+            <p className="text-xs">{isRunning ? 'Aguardando mensagens...' : 'Nenhuma mensagem ainda'}</p>
+            {!isRunning && (
+              <p className="text-[10px] text-muted-foreground/60">Inicie o aquecimento para ver mensagens</p>
+            )}
           </div>
         ) : (
           bubbles.map((b) => (
@@ -250,13 +348,13 @@ function LiveChatFeed({ planId, sessions }: { planId: string; sessions: string[]
               key={b.id}
               bubble={b}
               sessionIndex={sessionIndexOf(b.fromId)}
-              sessionInitial={getInitial(b.fromId, b.fromName)}
+              sessionInitial={getInitialFromName(b.fromName)}
             />
           ))
         )}
         {typing && (
           <div className="flex items-end gap-2 mb-2">
-            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs text-white font-bold">...</div>
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs text-white font-bold">…</div>
             <div className="bg-muted/20 border border-muted/30 rounded-2xl rounded-bl-sm">
               <TypingDots />
             </div>
@@ -264,6 +362,16 @@ function LiveChatFeed({ planId, sessions }: { planId: string; sessions: string[]
         )}
         <div ref={bottomRef} />
       </div>
+
+      {!autoScroll && bubbles.length > 0 && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-3 right-3 bg-primary/90 text-primary-foreground rounded-full p-2 shadow-lg hover:scale-110 transition-transform"
+          title="Ir para o fim"
+        >
+          <ArrowDown className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -281,40 +389,46 @@ function getHealthKey(h: number): keyof typeof HEALTH_COLORS {
   return h >= 80 ? 'green' : h >= 60 ? 'yellow' : h >= 40 ? 'orange' : 'red';
 }
 
-function SessionHealthBar({ session, chipHealth }: {
-  session: { id: string; name: string; phoneNumber?: string | null; status: string };
-  chipHealth: number;
+function SessionHealthBar({ session, hasStarted }: {
+  session: WarmupSessionDetail;
+  hasStarted: boolean;
 }) {
   const connected = session.status === 'connected';
-  const key = getHealthKey(chipHealth);
+  const health = hasStarted ? (session.sessionHealth ?? null) : null;
+  const key = getHealthKey(health ?? 0);
   const { bar, glow } = HEALTH_COLORS[key];
 
   return (
     <div className="bg-primary/5 border border-primary/10 rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div
             className={cn('w-2 h-2 rounded-full flex-shrink-0', connected ? 'bg-green-500' : 'bg-red-400')}
             style={connected ? { boxShadow: '0 0 6px #22c55e' } : undefined}
           />
           <span className="text-sm font-medium truncate max-w-[140px]">{session.name}</span>
         </div>
-        <span className="text-xs text-muted-foreground">{session.phoneNumber ?? '—'}</span>
+        <span className="text-xs text-muted-foreground flex-shrink-0">{session.phoneNumber ?? '—'}</span>
       </div>
       <div className="space-y-1">
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>Saúde do chip</span>
-          <span className="font-medium" style={{ color: glow }}>{chipHealth}%</span>
+          <span className="font-medium" style={{ color: health !== null ? glow : undefined }}>
+            {health !== null ? `${health}%` : '—'}
+          </span>
         </div>
         <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
           <div
-            className={cn('h-full rounded-full transition-all duration-1000', bar)}
-            style={{ width: `${chipHealth}%`, boxShadow: chipHealth >= 60 ? `0 0 8px ${glow}` : undefined }}
+            className={cn('h-full rounded-full transition-all duration-1000', health !== null ? bar : 'bg-white/10')}
+            style={{
+              width: `${health ?? 0}%`,
+              boxShadow: health !== null && health >= 60 ? `0 0 8px ${glow}` : undefined,
+            }}
           />
         </div>
         <div className="flex justify-between text-[10px] text-muted-foreground/60">
-          <span>Risco de ban</span>
-          <span>{100 - chipHealth}%</span>
+          <span>{(session.sent ?? 0)} enviadas · {(session.failed ?? 0)} falhas</span>
+          <span>{health !== null ? `Risco ban ${100 - health}%` : ''}</span>
         </div>
       </div>
     </div>
@@ -330,7 +444,7 @@ const STATUS_CFG: Record<string, { label: string; color: string; glow: string }>
   completed: { label: 'Concluído', color: 'text-blue-400',         glow: '#60a5fa' },
 };
 
-function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onEdit }: {
+const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onEdit }: {
   plan: WarmupPlan;
   onStart: () => void; onPause: () => void; onStop: () => void;
   onDelete: () => void; onEdit: () => void; actionLoading: boolean;
@@ -339,21 +453,30 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
   const [showLogs, setShowLogs] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const statsTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [confirmStop, setConfirmStop] = useState(false);
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastFetchRef = useRef(0);
 
   const loadStats = useCallback(() => {
-    warmupService.stats(plan.id).then(setStats).catch(() => {});
+    lastFetchRef.current = Date.now();
+    warmupService.stats(plan.id).then(setStats).catch((err) => console.warn('[stats]', err));
   }, [plan.id]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // Debounced WS stats refresh — max 1 request per 8 seconds
+  // Throttled WS stats refresh — at most 1 request per 6 seconds (leading-edge with trailing)
   useEffect(() => {
     const socket = getSocket();
     const handler = (data: any) => {
-      if (data.planId !== plan.id) return;
-      clearTimeout(statsTimer.current);
-      statsTimer.current = setTimeout(loadStats, 8000);
+      if (!data || data.planId !== plan.id) return;
+      const now = Date.now();
+      const delta = now - lastFetchRef.current;
+      if (delta >= 6000) {
+        loadStats();
+      } else {
+        clearTimeout(statsTimer.current);
+        statsTimer.current = setTimeout(loadStats, 6000 - delta);
+      }
     };
     socket.on('warmup.progress', handler);
     return () => {
@@ -361,6 +484,13 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
       clearTimeout(statsTimer.current);
     };
   }, [plan.id, loadStats]);
+
+  // Periodic refetch every 60s while running, in case WS misses an event
+  useEffect(() => {
+    if (plan.status !== 'running') return;
+    const t = setInterval(loadStats, 60_000);
+    return () => clearInterval(t);
+  }, [plan.status, loadStats]);
 
   const cfg = STATUS_CFG[plan.status] ?? STATUS_CFG.idle;
   const isRunning = plan.status === 'running';
@@ -375,6 +505,7 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
   })();
 
   const chipHealth = hasStarted ? (stats?.chipHealth ?? null) : null;
+  const completedAt = plan.completedAt ? new Date(plan.completedAt) : null;
 
   return (
     <>
@@ -389,7 +520,7 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
 
         <CardContent className="p-0">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-primary/10">
+          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-primary/10 gap-2 flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
               <div className={cn('p-2 rounded-xl', isRunning ? 'bg-green-500/10' : 'bg-primary/10')}>
                 <Flame
@@ -406,6 +537,12 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
                   {plan.useGroup && <Badge className="text-[10px] py-0 h-4 bg-purple-500/20 text-purple-300 border-purple-500/30">Grupo</Badge>}
                   {plan.mediaEnabled && <Badge className="text-[10px] py-0 h-4 bg-blue-500/20 text-blue-300 border-blue-500/30">Mídia</Badge>}
                   {plan.audioEnabled && <Badge className="text-[10px] py-0 h-4 bg-orange-500/20 text-orange-300 border-orange-500/30">Áudio</Badge>}
+                  {completedAt && (
+                    <span className="text-[10px] text-blue-400/80 flex items-center gap-0.5">
+                      <Clock className="w-2.5 h-2.5" />
+                      {completedAt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -422,18 +559,25 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
                 </Button>
               )}
               {(isRunning || isPaused) && (
-                <Button size="sm" variant="outline" className="h-8 px-2.5 border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={onStop} disabled={actionLoading}>
+                <Button size="sm" variant="outline" className="h-8 px-2.5 border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={() => setConfirmStop(true)} disabled={actionLoading}>
                   <Square className="w-3.5 h-3.5" />
                 </Button>
               )}
               <Button
-                size="sm" variant="outline" className={cn('h-8 px-2.5', isRunning && 'border-yellow-500/30 text-yellow-500/70')}
-                onClick={onEdit} disabled={actionLoading}
-                title={isRunning ? 'Pare o aquecimento antes de editar' : undefined}
+                size="sm" variant="outline" className={cn('h-8 px-2.5', isRunning && 'border-yellow-500/30 text-yellow-500/70 cursor-not-allowed')}
+                onClick={() => {
+                  if (isRunning) {
+                    toast.error('Pare o aquecimento antes de editar');
+                    return;
+                  }
+                  onEdit();
+                }}
+                disabled={actionLoading}
+                title={isRunning ? 'Pare o aquecimento antes de editar' : 'Editar'}
               >
                 <Settings2 className="w-3.5 h-3.5" />
               </Button>
-              <Button size="sm" variant="outline" className="h-8 px-2.5" onClick={() => setShowLogs(true)}>
+              <Button size="sm" variant="outline" className="h-8 px-2.5" onClick={() => setShowLogs(true)} title="Ver logs">
                 <BarChart2 className="w-3.5 h-3.5" />
               </Button>
               {isIdle && (
@@ -508,18 +652,18 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sessões</p>
                     {stats.sessions.map((s) => (
-                      <SessionHealthBar key={s.id} session={s} chipHealth={chipHealth ?? 5} />
+                      <SessionHealthBar key={s.id} session={s} hasStarted={hasStarted} />
                     ))}
                   </div>
                 )}
               </div>
 
               {/* Right: Live Chat */}
-              <div className="flex flex-col" style={{ minHeight: 340 }}>
+              <div className="flex flex-col" style={{ minHeight: 360 }}>
                 <div className="flex items-center gap-2 px-4 py-2.5 border-b border-primary/10 bg-primary/5">
                   <div
-                    className={cn('w-2 h-2 rounded-full', isRunning ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/30')}
-                    style={isRunning ? { boxShadow: '0 0 6px #22c55e' } : undefined}
+                    className={cn('w-2 h-2 rounded-full', isRunning ? 'bg-green-500' : 'bg-muted-foreground/30')}
+                    style={isRunning ? { animation: 'pulse-ring 1.5s infinite' } : undefined}
                   />
                   <span className="text-xs font-medium text-muted-foreground">
                     {isRunning ? 'Chat ao vivo' : 'Histórico de mensagens'}
@@ -531,7 +675,7 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
                   )}
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <LiveChatFeed planId={plan.id} sessions={plan.sessionIds} />
+                  <LiveChatFeed planId={plan.id} sessions={plan.sessionIds} isRunning={isRunning} />
                 </div>
               </div>
             </div>
@@ -542,7 +686,7 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
       {/* Logs modal */}
       {showLogs && <LogsModal plan={plan} onClose={() => setShowLogs(false)} />}
 
-      {/* Delete confirmation dialog */}
+      {/* Delete confirmation */}
       {confirmDelete && (
         <Dialog open onOpenChange={() => setConfirmDelete(false)}>
           <DialogContent className="max-w-sm">
@@ -552,7 +696,8 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground">
-              Tem certeza que quer excluir <span className="font-semibold text-foreground">"{plan.name}"</span>? Todos os logs serão perdidos.
+              Tem certeza que quer excluir <span className="font-semibold text-foreground">"{plan.name}"</span>?
+              Todos os logs serão perdidos.
             </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancelar</Button>
@@ -566,31 +711,64 @@ function PlanCard({ plan, onStart, onPause, onStop, onDelete, actionLoading, onE
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Stop confirmation */}
+      {confirmStop && (
+        <Dialog open onOpenChange={() => setConfirmStop(false)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-400">
+                <Square className="w-5 h-5" /> Parar aquecimento
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Parar agora vai interromper o aquecimento de <span className="font-semibold text-foreground">"{plan.name}"</span>.
+              O progresso atual é mantido — você pode iniciar novamente depois.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmStop(false)}>Cancelar</Button>
+              <Button
+                className="bg-red-500 hover:bg-red-600 text-white border-0"
+                onClick={() => { setConfirmStop(false); onStop(); }}
+              >
+                Parar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
-}
+});
 
 // ─── Logs Modal ───────────────────────────────────────────────────────────────
 
 function LogsModal({ plan, onClose }: { plan: WarmupPlan; onClose: () => void }) {
-  const [data, setData] = useState<any>({ items: [], total: 0, dailyStats: [] });
+  const [data, setData] = useState<{ items: WarmupLog[]; total: number; dailyStats: { day: string; sent: number; failed: number }[] }>({
+    items: [], total: 0, dailyStats: [],
+  });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (p: number) => {
     setLoading(true);
-    try { const d = await warmupService.logs(plan.id, p, 20); setData(d); setPage(p); }
-    catch { toast.error('Erro ao carregar logs'); }
-    finally { setLoading(false); }
+    try {
+      const d = await warmupService.logs(plan.id, p, 20);
+      setData(d);
+      setPage(p);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Erro ao carregar logs');
+    } finally { setLoading(false); }
   }, [plan.id]);
 
   useEffect(() => { load(1); }, [load]);
 
-  const totalPages = Math.ceil(data.total / 20);
+  const totalPages = Math.max(1, Math.ceil(data.total / 20));
   const mediaIcon = (t: string) => t === 'image' ? '🖼️' : t === 'audio' ? '🎤' : '💬';
 
   const formatDay = (day: string) => {
     const [y, m, d] = day.split('-').map(Number);
+    if (!y || !m || !d) return day;
     return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
   };
 
@@ -606,7 +784,7 @@ function LogsModal({ plan, onClose }: { plan: WarmupPlan; onClose: () => void })
 
         {data.dailyStats.length > 0 && (
           <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-            {data.dailyStats.map((d: any) => (
+            {data.dailyStats.map((d) => (
               <div key={d.day} className="flex-shrink-0 text-center bg-primary/5 rounded-lg p-2 min-w-[70px] border border-primary/10">
                 <p className="text-xs text-muted-foreground">{formatDay(d.day)}</p>
                 <p className="text-sm font-bold text-green-400">{d.sent}</p>
@@ -622,13 +800,18 @@ function LogsModal({ plan, onClose }: { plan: WarmupPlan; onClose: () => void })
           ) : data.items.length === 0 ? (
             <p className="text-center text-muted-foreground text-sm py-8">Nenhum log ainda</p>
           ) : (
-            data.items.map((log: any) => (
+            data.items.map((log) => (
               <div key={log.id} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-sm', log.status === 'sent' ? 'bg-green-500/5' : 'bg-red-500/5')}>
                 <span className="flex-shrink-0">{mediaIcon(log.mediaType ?? 'text')}</span>
                 {log.status === 'sent'
                   ? <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
                   : <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />}
-                <span className="flex-1 truncate text-muted-foreground">{log.message}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-foreground/80">{log.message}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {log.fromName ?? log.fromSession.slice(-4)} → {log.toName ?? log.toSession.slice(-4)}
+                  </p>
+                </div>
                 <span className="text-xs text-muted-foreground flex-shrink-0">
                   {new Date(log.sentAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                 </span>
@@ -639,9 +822,9 @@ function LogsModal({ plan, onClose }: { plan: WarmupPlan; onClose: () => void })
 
         {totalPages > 1 && (
           <div className="flex items-center justify-between pt-2 border-t border-primary/10">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => load(page - 1)}>Anterior</Button>
+            <Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => load(page - 1)}>Anterior</Button>
             <span className="text-xs text-muted-foreground">Página {page} de {totalPages}</span>
-            <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => load(page + 1)}>Próxima</Button>
+            <Button size="sm" variant="outline" disabled={page >= totalPages || loading} onClick={() => load(page + 1)}>Próxima</Button>
           </div>
         )}
       </DialogContent>
@@ -651,64 +834,120 @@ function LogsModal({ plan, onClose }: { plan: WarmupPlan; onClose: () => void })
 
 // ─── Plan Form ────────────────────────────────────────────────────────────────
 
-function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, planRunning }: {
-  initial?: Partial<WarmupPlanPayload & { audioFreq?: number }>;
+interface PlanFormState {
+  name: string;
+  selectedSessions: string[];
+  durationDays: number;
+  startMsgsPerDay: number;
+  maxMsgsPerDay: number;
+  windowStart: string;
+  windowEnd: string;
+  intervalMin: number;
+  intervalMax: number;
+  useGroup: boolean;
+  groupJid: string;
+  mediaEnabled: boolean;
+  mediaFreq: number;
+  audioEnabled: boolean;
+  audioFreq: number;
+  customMessages: string;
+}
+
+function PlanForm({ initial, sessions, onSave, onClose, loading }: {
+  initial?: Partial<WarmupPlanPayload>;
   sessions: any[];
   onSave: (d: WarmupPlanPayload) => Promise<void>;
   onClose: () => void;
   loading: boolean;
-  isEditing: boolean;
-  planRunning: boolean;
 }) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [selectedSessions, setSelectedSessions] = useState<string[]>(initial?.sessionIds ?? []);
-  const [durationDays, setDurationDays] = useState(initial?.durationDays ?? 14);
-  const [startMsgsPerDay, setStartMsgsPerDay] = useState(initial?.startMsgsPerDay ?? 5);
-  const [maxMsgsPerDay, setMaxMsgsPerDay] = useState(initial?.maxMsgsPerDay ?? 40);
-  const [windowStart, setWindowStart] = useState(initial?.windowStart ?? '');
-  const [windowEnd, setWindowEnd] = useState(initial?.windowEnd ?? '');
-  const [intervalMin, setIntervalMin] = useState(initial?.intervalMin ?? 30);
-  const [intervalMax, setIntervalMax] = useState(initial?.intervalMax ?? 120);
-  const [useGroup, setUseGroup] = useState(initial?.useGroup ?? false);
-  const [groupJid, setGroupJid] = useState(initial?.groupJid ?? '');
-  const [mediaEnabled, setMediaEnabled] = useState(initial?.mediaEnabled ?? false);
-  const [mediaFreq, setMediaFreq] = useState(initial?.mediaFreq ?? 5);
-  const [audioEnabled, setAudioEnabled] = useState(initial?.audioEnabled ?? false);
-  const [audioFreq, setAudioFreq] = useState((initial as any)?.audioFreq ?? 7);
-  const [customMessages, setCustomMessages] = useState((initial?.customMessages ?? []).join('\n'));
+  const [s, setS] = useState<PlanFormState>({
+    name: initial?.name ?? '',
+    selectedSessions: initial?.sessionIds ?? [],
+    durationDays: initial?.durationDays ?? 14,
+    startMsgsPerDay: initial?.startMsgsPerDay ?? 5,
+    maxMsgsPerDay: initial?.maxMsgsPerDay ?? 40,
+    windowStart: initial?.windowStart ?? '',
+    windowEnd: initial?.windowEnd ?? '',
+    intervalMin: initial?.intervalMin ?? 30,
+    intervalMax: initial?.intervalMax ?? 120,
+    useGroup: initial?.useGroup ?? false,
+    groupJid: initial?.groupJid ?? '',
+    mediaEnabled: initial?.mediaEnabled ?? false,
+    mediaFreq: initial?.mediaFreq ?? 5,
+    audioEnabled: initial?.audioEnabled ?? false,
+    audioFreq: initial?.audioFreq ?? 7,
+    customMessages: (initial?.customMessages ?? []).join('\n'),
+  });
   const [tab, setTab] = useState<'basic' | 'media' | 'messages'>('basic');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const update = <K extends keyof PlanFormState>(k: K, v: PlanFormState[K]) =>
+    setS((p) => ({ ...p, [k]: v }));
 
   const toggleSession = (id: string) =>
-    setSelectedSessions((p) => p.includes(id) ? p.filter((s) => s !== id) : [...p, id]);
+    setS((p) => ({
+      ...p,
+      selectedSessions: p.selectedSessions.includes(id)
+        ? p.selectedSessions.filter((x) => x !== id)
+        : [...p.selectedSessions, id],
+    }));
+
+  const validate = (): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!s.name.trim()) e.name = 'Nome obrigatório';
+    if (s.selectedSessions.length < 2) e.sessions = 'Selecione ao menos 2 sessões';
+    if (s.intervalMin > s.intervalMax) e.intervalMin = 'Intervalo mínimo deve ser ≤ máximo';
+    if (s.startMsgsPerDay > s.maxMsgsPerDay) e.startMsgsPerDay = 'Início deve ser ≤ máximo';
+    if (s.useGroup && !s.groupJid.trim()) e.groupJid = 'JID obrigatório no modo grupo';
+    if (s.useGroup && s.groupJid.trim() && !s.groupJid.endsWith('@g.us')) e.groupJid = 'JID deve terminar com @g.us';
+    if (s.windowStart && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(s.windowStart)) e.windowStart = 'Formato HH:mm';
+    if (s.windowEnd && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(s.windowEnd)) e.windowEnd = 'Formato HH:mm';
+    return e;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedSessions.length < 2) { toast.error('Selecione ao menos 2 sessões'); return; }
-    const msgs = customMessages.split('\n').map((s) => s.trim()).filter(Boolean);
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.error(Object.values(errs)[0]);
+      // jump to tab where the first error is
+      if (errs.name || errs.sessions || errs.intervalMin || errs.startMsgsPerDay || errs.groupJid || errs.windowStart || errs.windowEnd) {
+        setTab('basic');
+      }
+      return;
+    }
+    const msgs = s.customMessages.split('\n').map((x) => x.trim()).filter(Boolean);
     await onSave({
-      name, sessionIds: selectedSessions, durationDays, startMsgsPerDay, maxMsgsPerDay,
-      windowStart: windowStart || undefined, windowEnd: windowEnd || undefined,
-      intervalMin, intervalMax, useGroup, groupJid: groupJid || undefined,
-      mediaEnabled, mediaFreq, audioEnabled, audioFreq, customMessages: msgs,
-    } as WarmupPlanPayload);
+      name: s.name,
+      sessionIds: s.selectedSessions,
+      durationDays: s.durationDays,
+      startMsgsPerDay: s.startMsgsPerDay,
+      maxMsgsPerDay: s.maxMsgsPerDay,
+      windowStart: s.windowStart || undefined,
+      windowEnd: s.windowEnd || undefined,
+      intervalMin: s.intervalMin,
+      intervalMax: s.intervalMax,
+      useGroup: s.useGroup,
+      groupJid: s.useGroup ? (s.groupJid || undefined) : undefined,
+      mediaEnabled: s.mediaEnabled,
+      mediaFreq: s.mediaFreq,
+      audioEnabled: s.audioEnabled,
+      audioFreq: s.audioFreq,
+      customMessages: msgs,
+    });
   };
 
   const tabs = [
     { id: 'basic' as const, label: 'Configuração', icon: Settings2 },
-    { id: 'media' as const, label: 'Mídia & Áudio', icon: Image },
+    { id: 'media' as const, label: 'Mídia & Áudio', icon: ImageIcon },
     { id: 'messages' as const, label: 'Mensagens', icon: MessageSquare },
   ];
 
+  const customMsgCount = s.customMessages.split('\n').filter((x) => x.trim()).length;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Running warning */}
-      {isEditing && planRunning && (
-        <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2.5">
-          <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-yellow-300">Plano em execução. Pare o aquecimento antes de salvar alterações.</p>
-        </div>
-      )}
-
       {/* Tabs */}
       <div className="flex gap-1 bg-primary/5 rounded-xl p-1">
         {tabs.map(({ id, label, icon: Icon }) => (
@@ -724,20 +963,33 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Nome do plano</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Aquecimento Principal" required />
+            <Input value={s.name} onChange={(e) => update('name', e.target.value)} placeholder="Ex: Aquecimento Principal" required />
+            {errors.name && <p className="text-xs text-red-400">{errors.name}</p>}
           </div>
 
           <div className="space-y-2">
-            <Label>Sessões <span className="text-muted-foreground text-xs">(mín. 2 — selecione conectadas e desconectadas)</span></Label>
+            <div className="flex items-center justify-between">
+              <Label>Sessões <span className="text-muted-foreground text-xs">(mín. 2)</span></Label>
+              <button
+                type="button"
+                onClick={() => {
+                  const connected = sessions.filter((x: any) => x.status === 'connected').map((x: any) => x.id);
+                  setS((p) => ({ ...p, selectedSessions: connected }));
+                }}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Selecionar conectadas
+              </button>
+            </div>
             <div className="grid gap-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
               {sessions.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-3">Nenhuma sessão disponível</p>
               )}
-              {sessions.map((s) => {
-                const selected = selectedSessions.includes(s.id);
-                const connected = s.status === 'connected';
+              {sessions.map((sess) => {
+                const selected = s.selectedSessions.includes(sess.id);
+                const connected = sess.status === 'connected';
                 return (
-                  <button key={s.id} type="button" onClick={() => toggleSession(s.id)}
+                  <button key={sess.id} type="button" onClick={() => toggleSession(sess.id)}
                     className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all text-sm',
                       selected ? 'border-primary bg-primary/10 text-primary' : 'border-primary/20 hover:border-primary/40 text-muted-foreground')}>
                     <div className={cn('w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0',
@@ -745,8 +997,8 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
                       {selected && <X className="w-2.5 h-2.5 text-primary-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{s.name}</p>
-                      {s.phoneNumber && <p className="text-xs opacity-60">{s.phoneNumber}</p>}
+                      <p className="font-medium truncate">{sess.name}</p>
+                      {sess.phoneNumber && <p className="text-xs opacity-60">{sess.phoneNumber}</p>}
                     </div>
                     <div className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', connected ? 'bg-green-500' : 'bg-red-400')}
                       title={connected ? 'Conectada' : 'Desconectada'} />
@@ -754,28 +1006,42 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
                 );
               })}
             </div>
+            {errors.sessions && <p className="text-xs text-red-400">{errors.sessions}</p>}
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5"><Label>Duração (dias)</Label><Input type="number" min={1} max={90} value={durationDays} onChange={(e) => setDurationDays(+e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Início msgs/dia</Label><Input type="number" min={1} max={50} value={startMsgsPerDay} onChange={(e) => setStartMsgsPerDay(+e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Máx msgs/dia</Label><Input type="number" min={1} max={200} value={maxMsgsPerDay} onChange={(e) => setMaxMsgsPerDay(+e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Duração (dias)</Label><Input type="number" min={1} max={90} value={s.durationDays} onChange={(e) => update('durationDays', +e.target.value)} /></div>
+            <div className="space-y-1.5">
+              <Label>Início msgs/dia</Label>
+              <Input type="number" min={1} max={50} value={s.startMsgsPerDay} onChange={(e) => update('startMsgsPerDay', +e.target.value)} />
+              {errors.startMsgsPerDay && <p className="text-xs text-red-400">{errors.startMsgsPerDay}</p>}
+            </div>
+            <div className="space-y-1.5"><Label>Máx msgs/dia</Label><Input type="number" min={1} max={200} value={s.maxMsgsPerDay} onChange={(e) => update('maxMsgsPerDay', +e.target.value)} /></div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Janela início <span className="text-muted-foreground/60 text-[10px]">(UTC)</span></Label>
-              <Input type="time" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} />
+              <Input type="time" value={s.windowStart} onChange={(e) => update('windowStart', e.target.value)} />
+              {errors.windowStart && <p className="text-xs text-red-400">{errors.windowStart}</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Janela fim <span className="text-muted-foreground/60 text-[10px]">(UTC)</span></Label>
-              <Input type="time" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} />
+              <Input type="time" value={s.windowEnd} onChange={(e) => update('windowEnd', e.target.value)} />
+              {errors.windowEnd && <p className="text-xs text-red-400">{errors.windowEnd}</p>}
             </div>
           </div>
+          <p className="text-[10px] text-muted-foreground/70 -mt-2">
+            ⓘ Janela em UTC. Hora atual UTC: {new Date().toUTCString().slice(17, 22)}
+          </p>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>Intervalo mín (seg)</Label><Input type="number" min={10} max={3600} value={intervalMin} onChange={(e) => setIntervalMin(+e.target.value)} /></div>
-            <div className="space-y-1.5"><Label>Intervalo máx (seg)</Label><Input type="number" min={10} max={3600} value={intervalMax} onChange={(e) => setIntervalMax(+e.target.value)} /></div>
+            <div className="space-y-1.5">
+              <Label>Intervalo mín (seg)</Label>
+              <Input type="number" min={10} max={3600} value={s.intervalMin} onChange={(e) => update('intervalMin', +e.target.value)} />
+              {errors.intervalMin && <p className="text-xs text-red-400">{errors.intervalMin}</p>}
+            </div>
+            <div className="space-y-1.5"><Label>Intervalo máx (seg)</Label><Input type="number" min={10} max={3600} value={s.intervalMax} onChange={(e) => update('intervalMax', +e.target.value)} /></div>
           </div>
 
           {/* Group mode */}
@@ -785,16 +1051,17 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
                 <Users className="w-4 h-4 text-purple-400" />
                 <span className="text-sm font-medium text-purple-300">Modo Grupo</span>
               </div>
-              <button type="button" onClick={() => setUseGroup(!useGroup)}
-                className={cn('w-10 h-5 rounded-full transition-all relative', useGroup ? 'bg-purple-500' : 'bg-white/10')}>
-                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', useGroup ? 'left-5' : 'left-0.5')} />
+              <button type="button" onClick={() => update('useGroup', !s.useGroup)}
+                className={cn('w-10 h-5 rounded-full transition-all relative', s.useGroup ? 'bg-purple-500' : 'bg-white/10')}>
+                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', s.useGroup ? 'left-5' : 'left-0.5')} />
               </button>
             </div>
-            {useGroup && (
+            {s.useGroup && (
               <div className="space-y-1.5">
-                <Label className="text-xs">JID do Grupo (ex: 5521999...@g.us)</Label>
-                <Input value={groupJid} onChange={(e) => setGroupJid(e.target.value)} placeholder="5521999...@g.us" className="text-xs" />
-                <p className="text-[10px] text-muted-foreground">Mensagens serão enviadas para este grupo em vez de mensagens diretas.</p>
+                <Label className="text-xs">JID do Grupo (ex: 12036304...@g.us)</Label>
+                <Input value={s.groupJid} onChange={(e) => update('groupJid', e.target.value)} placeholder="...@g.us" className="text-xs" />
+                {errors.groupJid && <p className="text-xs text-red-400">{errors.groupJid}</p>}
+                <p className="text-[10px] text-muted-foreground">Mensagens serão enviadas neste grupo em vez de mensagens diretas.</p>
               </div>
             )}
           </div>
@@ -803,30 +1070,28 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
 
       {tab === 'media' && (
         <div className="space-y-4">
-          {/* Images */}
           <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Image className="w-4 h-4 text-blue-400" />
+                <ImageIcon className="w-4 h-4 text-blue-400" />
                 <div>
                   <p className="text-sm font-medium text-blue-300">Imagens Aleatórias</p>
                   <p className="text-xs text-muted-foreground">Envia imagens aleatórias durante o aquecimento</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setMediaEnabled(!mediaEnabled)}
-                className={cn('w-10 h-5 rounded-full transition-all relative', mediaEnabled ? 'bg-blue-500' : 'bg-white/10')}>
-                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', mediaEnabled ? 'left-5' : 'left-0.5')} />
+              <button type="button" onClick={() => update('mediaEnabled', !s.mediaEnabled)}
+                className={cn('w-10 h-5 rounded-full transition-all relative', s.mediaEnabled ? 'bg-blue-500' : 'bg-white/10')}>
+                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', s.mediaEnabled ? 'left-5' : 'left-0.5')} />
               </button>
             </div>
-            {mediaEnabled && (
+            {s.mediaEnabled && (
               <div className="space-y-1.5">
-                <Label className="text-xs">Frequência — enviar imagem a cada N mensagens</Label>
-                <Input type="number" min={1} max={50} value={mediaFreq} onChange={(e) => setMediaFreq(+e.target.value)} />
+                <Label className="text-xs">Frequência — enviar imagem a cada N mensagens (mín. 3)</Label>
+                <Input type="number" min={3} max={50} value={s.mediaFreq} onChange={(e) => update('mediaFreq', Math.max(3, +e.target.value))} />
               </div>
             )}
           </div>
 
-          {/* Audio */}
           <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -836,15 +1101,15 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
                   <p className="text-xs text-muted-foreground">Envia áudios curtos gerados automaticamente</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setAudioEnabled(!audioEnabled)}
-                className={cn('w-10 h-5 rounded-full transition-all relative', audioEnabled ? 'bg-orange-500' : 'bg-white/10')}>
-                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', audioEnabled ? 'left-5' : 'left-0.5')} />
+              <button type="button" onClick={() => update('audioEnabled', !s.audioEnabled)}
+                className={cn('w-10 h-5 rounded-full transition-all relative', s.audioEnabled ? 'bg-orange-500' : 'bg-white/10')}>
+                <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow', s.audioEnabled ? 'left-5' : 'left-0.5')} />
               </button>
             </div>
-            {audioEnabled && (
+            {s.audioEnabled && (
               <div className="space-y-1.5">
-                <Label className="text-xs">Frequência — enviar áudio a cada N mensagens</Label>
-                <Input type="number" min={1} max={50} value={audioFreq} onChange={(e) => setAudioFreq(+e.target.value)} />
+                <Label className="text-xs">Frequência — enviar áudio a cada N mensagens (mín. 3)</Label>
+                <Input type="number" min={3} max={50} value={s.audioFreq} onChange={(e) => update('audioFreq', Math.max(3, +e.target.value))} />
               </div>
             )}
           </div>
@@ -852,8 +1117,9 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
           <div className="bg-primary/5 rounded-xl p-3 text-xs text-muted-foreground space-y-1 border border-primary/10">
             <p className="font-medium text-foreground">Como funciona:</p>
             <p>• Imagens buscadas de fontes públicas variam a cada envio</p>
-            <p>• Áudios são gerados localmente com variações naturais (tom + ruído)</p>
+            <p>• Áudios são gerados localmente em WAV com tom + ruído natural</p>
             <p>• Frequências são independentes — configure cada tipo separadamente</p>
+            <p>• Mín. 3 para evitar spam (mídia em toda mensagem aumenta risco de ban)</p>
           </div>
         </div>
       )}
@@ -862,23 +1128,26 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
         <div className="space-y-3">
           <div className="bg-primary/5 rounded-xl p-3 border border-primary/10">
             <p className="text-xs text-muted-foreground">
-              Cole mensagens personalizadas (uma por linha). Se vazio, usa o banco padrão com 30 frases.
-              Recomendamos ao menos 10 mensagens variadas para maior naturalidade.
+              Cole mensagens personalizadas (uma por linha). Se &lt; 3 entradas, usa o banco padrão com 30 frases.
+              Recomendamos 10+ mensagens variadas para maior naturalidade.
             </p>
           </div>
           <div className="space-y-1.5">
             <Label>Mensagens personalizadas</Label>
             <Textarea
-              value={customMessages}
-              onChange={(e) => setCustomMessages(e.target.value)}
+              value={s.customMessages}
+              onChange={(e) => update('customMessages', e.target.value)}
               placeholder={"Oi, tudo bem?\nOlá! Como você está?\nE aí, novidade?"}
               className="min-h-[180px] text-sm font-mono"
             />
             <p className="text-xs text-muted-foreground">
-              {customMessages.split('\n').filter((s) => s.trim()).length} mensagens definidas
-              {customMessages.split('\n').filter((s) => s.trim()).length > 0 &&
-                customMessages.split('\n').filter((s) => s.trim()).length < 3 &&
-                <span className="text-yellow-400 ml-1">— adicione ao menos 3 para ativar o banco personalizado</span>}
+              {customMsgCount} mensagens definidas
+              {customMsgCount > 0 && customMsgCount < 3 && (
+                <span className="text-yellow-400 ml-1">— adicione ao menos 3 para ativar o banco personalizado</span>
+              )}
+              {customMsgCount >= 3 && customMsgCount < 10 && (
+                <span className="text-yellow-300 ml-1">— recomendamos 10+ para mais naturalidade</span>
+              )}
             </p>
           </div>
         </div>
@@ -886,9 +1155,9 @@ function PlanForm({ initial, sessions, onSave, onClose, loading, isEditing, plan
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose} disabled={loading}>Cancelar</Button>
-        <Button type="submit" disabled={loading || planRunning}>
+        <Button type="submit" disabled={loading}>
           {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          {planRunning ? 'Pare antes de salvar' : 'Salvar'}
+          Salvar
         </Button>
       </DialogFooter>
     </form>
@@ -905,29 +1174,39 @@ export const WarmupPage: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [editPlan, setEditPlan] = useState<WarmupPlan | null>(null);
   const [formLoading, setFormLoading] = useState(false);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const load = useCallback(async () => {
     try {
       const [p, s] = await Promise.all([warmupService.list(), sessionService.list()]);
       setPlans(p);
-      setSessions(s); // all sessions, not just connected
-    } catch { toast.error('Erro ao carregar planos'); }
+      setSessions(s);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Erro ao carregar planos');
+    }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Only reload plan list when status changes to a terminal/transition state
+  // Reload list only on terminal status changes — debounced
   useEffect(() => {
     const socket = getSocket();
     const handler = (data: any) => {
+      if (!data?.status) return;
       const terminal = ['idle', 'paused', 'completed'];
-      if (terminal.includes(data.status)) {
-        warmupService.list().then(setPlans).catch(() => {});
+      if (terminal.includes(data.status) || data.completed === true || data.paused === true || data.stopped === true) {
+        clearTimeout(reloadTimer.current);
+        reloadTimer.current = setTimeout(() => {
+          warmupService.list().then(setPlans).catch(() => {});
+        }, 500);
       }
     };
     socket.on('warmup.progress', handler);
-    return () => socket.off('warmup.progress', handler);
+    return () => {
+      socket.off('warmup.progress', handler);
+      clearTimeout(reloadTimer.current);
+    };
   }, []);
 
   const handleSave = async (data: WarmupPlanPayload) => {
@@ -954,8 +1233,17 @@ export const WarmupPage: React.FC = () => {
     finally { setActionLoading(null); }
   };
 
+  const handleEdit = (plan: WarmupPlan) => {
+    if (plan.status === 'running') {
+      toast.error('Pare o aquecimento antes de editar');
+      return;
+    }
+    setEditPlan(plan);
+    setFormOpen(true);
+  };
+
   const activePlans = plans.filter((p) => p.status === 'running');
-  const connectedSessions = sessions.filter((s) => s.status === 'connected');
+  const connectedSessions = sessions.filter((sx) => sx.status === 'connected');
 
   return (
     <div className="space-y-6">
@@ -1035,7 +1323,7 @@ export const WarmupPage: React.FC = () => {
               onPause={() => act(plan.id, () => warmupService.pause(plan.id), 'Aquecimento pausado')}
               onStop={() => act(plan.id, () => warmupService.stop(plan.id), 'Aquecimento parado')}
               onDelete={() => act(plan.id, () => warmupService.delete(plan.id), 'Plano excluído')}
-              onEdit={() => { setEditPlan(plan); setFormOpen(true); }}
+              onEdit={() => handleEdit(plan)}
             />
           ))}
         </div>
@@ -1059,15 +1347,13 @@ export const WarmupPage: React.FC = () => {
                 intervalMax: editPlan.intervalMax, useGroup: editPlan.useGroup,
                 groupJid: editPlan.groupJid ?? '', mediaEnabled: editPlan.mediaEnabled,
                 mediaFreq: editPlan.mediaFreq, audioEnabled: editPlan.audioEnabled,
-                audioFreq: (editPlan as any).audioFreq ?? 7,
+                audioFreq: editPlan.audioFreq,
                 customMessages: editPlan.customMessages,
               } : undefined}
               sessions={sessions}
               onSave={handleSave}
               onClose={() => { setFormOpen(false); setEditPlan(null); }}
               loading={formLoading}
-              isEditing={!!editPlan}
-              planRunning={editPlan?.status === 'running'}
             />
           </DialogContent>
         </Dialog>

@@ -242,9 +242,10 @@ async function runLoop(controller: Controller): Promise<void> {
         if (shouldSendAudio) {
           mediaType = 'audio';
           const audioBuf = generateAudioWav(rnd(1500, 4000));
+          // WAV file (RIFF/WAVE header) — send with matching mime/extension
           await sendMedia(fromId, targetPhone, {
-            buffer: audioBuf, mimetype: 'audio/ogg; codecs=opus',
-            type: 'audio', filename: 'audio.ogg',
+            buffer: audioBuf, mimetype: 'audio/wav',
+            type: 'audio', filename: 'audio.wav',
           }, { applyDelay: false, isGroup });
         } else if (shouldSendMedia) {
           const imgBuf = await fetchRandomImage();
