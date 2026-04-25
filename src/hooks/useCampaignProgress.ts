@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getSocket, subscribe, unsubscribe } from '@/services/wsClient';
 
 export interface CampaignProgressEvent {
@@ -36,6 +36,7 @@ export function useCampaignProgress(
 ) {
   const [progress, setProgress] = useState<CampaignProgressEvent | null>(null);
   const [completed, setCompleted] = useState<CampaignCompletedEvent | null>(null);
+  const subscriptionCountRef = useRef(0); // Track subscription count to prevent duplicates
 
   useEffect(() => {
     if (!campaignId) {
@@ -45,7 +46,15 @@ export function useCampaignProgress(
     }
     const socket = getSocket();
     const room = `campaign:${campaignId}`;
-    const subscribeRoom = () => subscribe(room);
+
+    // Only subscribe if socket is connected
+    const subscribeRoom = () => {
+      if (socket.connected) {
+        subscribe(room);
+        subscriptionCountRef.current++;
+      }
+    };
+
     subscribeRoom();
     setProgress(null);
     setCompleted(null);
@@ -60,15 +69,23 @@ export function useCampaignProgress(
       onCompleted?.(evt);
     };
 
+    // Reconnect handler - only subscribe once per reconnection
+    const onReconnect = () => {
+      if (subscriptionCountRef.current === 0) {
+        subscribeRoom();
+      }
+    };
+
     socket.on('campaign.progress', onProgress);
     socket.on('campaign.completed', onDone);
-    socket.on('connect', subscribeRoom);
+    socket.on('connect', onReconnect);
 
     return () => {
       socket.off('campaign.progress', onProgress);
       socket.off('campaign.completed', onDone);
-      socket.off('connect', subscribeRoom);
+      socket.off('connect', onReconnect);
       unsubscribe(room);
+      subscriptionCountRef.current = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);

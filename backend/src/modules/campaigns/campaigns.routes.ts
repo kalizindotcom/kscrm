@@ -123,7 +123,9 @@ async function ensureSessionOwned(sessionId: string, userId: string) {
 
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/\D/g, '');
-  if (digits.length < 8 || digits.length > 15) return null;
+  // WhatsApp requires at least 10 digits (country code + area code + number)
+  // Max 15 digits per E.164 standard
+  if (digits.length < 10 || digits.length > 15) return null;
   return digits;
 }
 
@@ -414,14 +416,22 @@ export async function campaignsRoutes(app: FastifyInstance) {
   app.delete('/api/campaigns/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
+
+    // Wait for worker to finish before deleting
     if (isActive(id)) {
-      cancelCampaign(id);
-      // let worker finish; attempt delete anyway (targets cascade)
+      await cancelCampaign(id);
+      // Give worker time to clean up
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    // Clean up media file on disk (if any)
+
+    // Clean up media file on disk (if any) - with path traversal protection
     if (camp.mediaUrl && camp.mediaUrl.startsWith('/uploads/')) {
-      const p = path.resolve(env.UPLOAD_DIR, camp.mediaUrl.replace('/uploads/', ''));
-      fs.unlink(p).catch(() => undefined);
+      const filename = path.basename(camp.mediaUrl); // Extract only filename, prevents path traversal
+      const safePath = path.join(env.UPLOAD_DIR, filename);
+      // Verify the resolved path is still within UPLOAD_DIR
+      if (safePath.startsWith(path.resolve(env.UPLOAD_DIR))) {
+        fs.unlink(safePath).catch(() => undefined);
+      }
     }
     await prisma.campaign.delete({ where: { id } });
     return reply.send({ ok: true });
@@ -576,11 +586,37 @@ export async function campaignsRoutes(app: FastifyInstance) {
       const file: MultipartFile | undefined = await (req as any).file();
       if (!file) return reply.status(400).send({ error: 'Arquivo não enviado' });
 
-      const mime = file.mimetype || 'application/octet-stream';
-      const ext = path.extname(file.filename || '') || guessExt(mime);
-      const safeName = `${id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
-      const fullPath = path.resolve(env.UPLOAD_DIR, safeName);
+      // Validate file size (max 50MB)
       const buffer = await file.toBuffer();
+      const maxSize = 50 * 1024 * 1024; // 50MB
+      if (buffer.length > maxSize) {
+        return reply.status(400).send({ error: 'Arquivo muito grande. Máximo: 50MB' });
+      }
+
+      const mime = file.mimetype || 'application/octet-stream';
+
+      // Validate MIME type (whitelist approach)
+      const allowedMimes = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'video/mp4', 'video/mpeg', 'video/quicktime',
+        'audio/mpeg', 'audio/ogg', 'audio/wav',
+        'application/pdf', 'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+      if (!allowedMimes.includes(mime)) {
+        return reply.status(400).send({ error: 'Tipo de arquivo não permitido' });
+      }
+
+      // Safe extension extraction - prevent path traversal
+      const ext = path.extname(file.filename || '').toLowerCase().replace(/[^a-z0-9.]/g, '') || guessExt(mime);
+      const safeName = `${id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
+      const fullPath = path.join(env.UPLOAD_DIR, safeName);
+
+      // Verify the resolved path is still within UPLOAD_DIR (path traversal protection)
+      if (!fullPath.startsWith(path.resolve(env.UPLOAD_DIR))) {
+        return reply.status(400).send({ error: 'Caminho de arquivo inválido' });
+      }
+
       await fs.writeFile(fullPath, buffer);
 
       const mediaType: 'image' | 'video' | 'audio' | 'document' = mime.startsWith('image/')

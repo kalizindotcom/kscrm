@@ -74,6 +74,11 @@ export const QuickReplies: React.FC<QuickRepliesProps> = ({ onSelect, className 
     if (reply) {
       setNewReply({ label: reply.label, content: reply.content, category: reply.category || '' });
       setEditingId(id);
+      // Scroll to top to show the form
+      setTimeout(() => {
+        const modal = document.querySelector('[data-quick-replies-modal]');
+        if (modal) modal.scrollTop = 0;
+      }, 0);
     }
   };
 
@@ -125,19 +130,41 @@ export const QuickReplies: React.FC<QuickRepliesProps> = ({ onSelect, className 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-slate-900 border border-primary/20 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
+              className="bg-slate-900 border border-primary/20 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden"
+              data-quick-replies-modal
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
                   <Zap className="w-5 h-5 text-primary" />
-                  Gerenciar Respostas Rápidas
+                  {editingId ? 'Editar Resposta Rápida' : 'Gerenciar Respostas Rápidas'}
                 </h3>
-                <button onClick={() => setShowManager(false)} className="text-slate-500 hover:text-white transition-colors">
+                <button
+                  onClick={() => {
+                    setShowManager(false);
+                    setEditingId(null);
+                    setNewReply({ label: '', content: '', category: '' });
+                  }}
+                  className="text-slate-500 hover:text-white transition-colors"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="space-y-4 mb-6">
+              <div className="space-y-4 mb-6">{editingId && (
+                  <div className="flex items-center gap-2 p-3 bg-primary/10 border border-primary/20 rounded-xl mb-2">
+                    <Edit2 className="w-4 h-4 text-primary" />
+                    <span className="text-xs font-bold text-primary">Editando resposta rápida</span>
+                    <button
+                      onClick={() => {
+                        setEditingId(null);
+                        setNewReply({ label: '', content: '', category: '' });
+                      }}
+                      className="ml-auto text-xs text-slate-400 hover:text-white transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Título</label>
                   <input
@@ -177,11 +204,16 @@ export const QuickReplies: React.FC<QuickRepliesProps> = ({ onSelect, className 
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 scroll-smooth">
                 {replies.map((reply) => (
                   <div
                     key={reply.id}
-                    className="flex items-start gap-3 p-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all group"
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-xl border transition-all group",
+                      editingId === reply.id
+                        ? "border-primary/40 bg-primary/10 ring-2 ring-primary/20"
+                        : "border-white/10 bg-white/5 hover:bg-white/10"
+                    )}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">

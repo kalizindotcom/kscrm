@@ -104,7 +104,7 @@ export async function startCampaign(campaignId: string): Promise<void> {
     where: { id: campaignId },
     data: {
       status: 'running',
-      startedAt: camp.startedAt ?? new Date(),
+      startedAt: new Date(), // Always reset to current time when starting a new fire
       finishedAt: null,
     },
   });
@@ -273,26 +273,43 @@ async function runLoop(controller: Controller): Promise<void> {
 }
 
 async function claimNextTarget(campaignId: string) {
-  // Atomic "claim": updateMany with LIMIT not supported in Prisma — fallback to
-  // findFirst + conditional update on (id, status). Safe enough under a single worker per campaign.
-  const next = await prisma.campaignTarget.findFirst({
-    where: { campaignId, status: 'pending' },
-    orderBy: { id: 'asc' },
-  });
-  if (!next) return null;
+  // Improved atomic claim with retry logic
+  const maxRetries = 3;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const next = await prisma.campaignTarget.findFirst({
+      where: { campaignId, status: 'pending' },
+      orderBy: { id: 'asc' },
+    });
+    if (!next) return null;
 
-  const claim = await prisma.campaignTarget.updateMany({
-    where: { id: next.id, status: 'pending' },
-    data: { status: 'sending', claimedAt: new Date() },
-  });
-  if (claim.count === 0) return null; // someone else beat us
-  return next;
+    // Conditional update - only succeeds if status is still 'pending'
+    const claim = await prisma.campaignTarget.updateMany({
+      where: {
+        id: next.id,
+        status: 'pending',
+        // Additional safety: ensure not claimed recently (prevents race with multiple workers)
+        OR: [
+          { claimedAt: null },
+          { claimedAt: { lt: new Date(Date.now() - 60000) } } // older than 1 min
+        ]
+      },
+      data: { status: 'sending', claimedAt: new Date() },
+    });
+
+    if (claim.count > 0) return next; // Successfully claimed
+    // Someone else claimed it, retry with next target
+  }
+  return null; // All retries exhausted
 }
 
 async function markTargetFailed(targetId: string, message: string) {
   await prisma.campaignTarget.update({
     where: { id: targetId },
-    data: { status: 'pending', claimedAt: null, error: message.slice(0, 500) },
+    data: {
+      status: 'failed', // Changed from 'pending' to 'failed'
+      claimedAt: null,
+      error: message.slice(0, 500)
+    },
   });
 }
 

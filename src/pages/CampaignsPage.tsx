@@ -282,6 +282,26 @@ const WhatsAppPreview: React.FC<{
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file size (max 50MB)
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
+      toast.error('Arquivo muito grande. Tamanho máximo: 50MB');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/mpeg', 'video/quicktime',
+      'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp3'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Tipo de arquivo não permitido. Use imagens, vídeos ou áudios.');
+      e.target.value = '';
+      return;
+    }
+
     if (localPreviewUrlRef.current) {
       URL.revokeObjectURL(localPreviewUrlRef.current);
     }
@@ -375,10 +395,13 @@ const WhatsAppPreview: React.FC<{
 
   const handleSaveEdit = async () => {
     if (!onSave || isSavingEdit) return;
-    if (mediaUrl?.startsWith('blob:') && !mediaFile) {
-      toast.error('Mídia local inválida. Reanexe o arquivo antes de salvar.');
-      return;
-    }
+
+    // Remove invalid blob URL validation - if mediaUrl is blob but no mediaFile,
+    // it means media was already uploaded to server
+    // if (mediaUrl?.startsWith('blob:') && !mediaFile) {
+    //   toast.error('Mídia local inválida. Reanexe o arquivo antes de salvar.');
+    //   return;
+    // }
 
     setIsSavingEdit(true);
     try {
@@ -431,6 +454,26 @@ const WhatsAppPreview: React.FC<{
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Validate file type
+    const validExtensions = ['.csv', '.xlsx', '.xls'];
+    const fileName = file.name.toLowerCase();
+    const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+
+    if (!isValid) {
+      toast.error('Formato inválido. Use arquivos CSV ou Excel (.xlsx, .xls)');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file size (max 10MB for CSV/Excel)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      toast.error('Arquivo muito grande. Tamanho máximo: 10MB');
+      e.target.value = '';
+      return;
+    }
+
     setIsUploading(true);
     try {
       const result = await campaignService.uploadCSV(campaign.id, file);
@@ -454,6 +497,13 @@ const WhatsAppPreview: React.FC<{
     }
     if (!selectedSessionId) {
       toast.error('Selecione uma sessão para realizar o disparo.');
+      return;
+    }
+
+    // Validate session is connected
+    const session = sessions.find(s => s.id === selectedSessionId);
+    if (!session || session.status !== 'connected') {
+      toast.error('A sessão selecionada não está conectada. Conecte-a antes de disparar.');
       return;
     }
 
@@ -518,7 +568,11 @@ const WhatsAppPreview: React.FC<{
     }
   };
 
+  const [isPauseResumeLoading, setIsPauseResumeLoading] = useState(false);
+
   const handleTogglePause = async () => {
+    if (isPauseResumeLoading) return; // Debounce
+    setIsPauseResumeLoading(true);
     try {
       if (!isPaused) {
         await campaignService.pause(campaign.id);
@@ -531,10 +585,18 @@ const WhatsAppPreview: React.FC<{
       }
     } catch (err: any) {
       toast.error(err?.message ?? 'Falha ao alterar estado da campanha');
+    } finally {
+      setTimeout(() => setIsPauseResumeLoading(false), 1000); // 1s debounce
     }
   };
 
   const handleCancelCampaign = async () => {
+    // Add confirmation dialog
+    const confirmed = window.confirm(
+      'Tem certeza que deseja cancelar esta campanha? Esta ação não pode ser desfeita.'
+    );
+    if (!confirmed) return;
+
     try {
       await campaignService.cancel(campaign.id);
       setIsFiring(false);
@@ -564,10 +626,8 @@ const WhatsAppPreview: React.FC<{
   };
 
   useEffect(() => {
-    contactService
-      .list({ pageSize: 500 })
-      .then((res) => setAvailableContacts(res.items ?? []))
-      .catch(() => setAvailableContacts([]));
+    // Removed: contactService.list({ pageSize: 500 }) - not used anywhere
+    // setAvailableContacts is never used in the component
     templateService
       .list()
       .then(setTemplates)
@@ -646,13 +706,22 @@ const WhatsAppPreview: React.FC<{
     showCompletionSummary,
   ]);
 
-  // Polling fallback: keeps progress and completion modal working even if WS packets drop.
+  // Polling fallback: only runs if WebSocket is not providing updates
   useEffect(() => {
     if (!isFiring || activeCampaignId !== campaign.id) return;
+
+    // Track if we're receiving WebSocket updates
+    let lastWsUpdate = Date.now();
     let cancelled = false;
 
     const tick = async () => {
       try {
+        // Only poll if WebSocket hasn't updated in the last 5 seconds (fallback mode)
+        const timeSinceLastWsUpdate = Date.now() - lastWsUpdate;
+        if (wsProgress && timeSinceLastWsUpdate < 5000) {
+          return; // WebSocket is working, skip polling
+        }
+
         const latest = await campaignService.get(campaign.id);
         if (cancelled) return;
 
@@ -688,8 +757,13 @@ const WhatsAppPreview: React.FC<{
       }
     };
 
+    // Update lastWsUpdate when WebSocket sends data
+    if (wsProgress) {
+      lastWsUpdate = Date.now();
+    }
+
     void tick();
-    const timer = setInterval(tick, 1500);
+    const timer = setInterval(tick, 3000); // Increased to 3s since it's just fallback
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -705,6 +779,7 @@ const WhatsAppPreview: React.FC<{
     setProgress,
     showCompletionSummary,
     wsProgress?.currentTarget,
+    wsProgress, // Added to track WebSocket updates
   ]);
 
   // Removido para que a campanha continue mesmo ao sair da aba
