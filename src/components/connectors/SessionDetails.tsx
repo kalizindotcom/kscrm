@@ -358,7 +358,7 @@ export const SessionDetails: React.FC<SessionDetailsProps> = ({ session, isOpen,
                 </Button>
               ) : (
                 <div className="flex gap-2">
-                  <Button className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20" onClick={() => onAction('connect', session)}>
+                  <Button className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/20" onClick={() => onAction('reconnect_qr', session)}>
                     RECONECTAR VIA QR
                   </Button>
                   <Button variant="outline" className="border-blue-500/20 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 font-bold text-xs" onClick={() => onAction('pairing_code', session)}>

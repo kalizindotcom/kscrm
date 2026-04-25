@@ -74,7 +74,7 @@ export const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({ onCancel, onSucces
     if (!sessionId) return;
     setIsGenerating(true);
     toast.promise(
-      sessionService.connect(sessionId).then(async () => {
+      sessionService.reconnectViaQr(sessionId).then(async () => {
         setTimeLeft(120);
         await loadQr();
       }),

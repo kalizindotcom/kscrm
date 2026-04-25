@@ -123,6 +123,12 @@ export async function connect(userId: string, id: string) {
   return { ok: true };
 }
 
+export async function reconnectViaQr(userId: string, id: string) {
+  await assertSessionOwnership(userId, id);
+  await baileys.reconnectViaQr(id);
+  return { ok: true };
+}
+
 export async function pairingCode(userId: string, id: string, phone: string) {
   await assertSessionOwnership(userId, id);
   const code = await baileys.requestPairingCode(id, phone);

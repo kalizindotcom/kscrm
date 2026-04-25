@@ -52,6 +52,11 @@ export async function sessionsRoutes(app: FastifyInstance) {
     return service.connect(req.user!.sub, id);
   });
 
+  app.post('/api/sessions/:id/reconnect-qr', async (req) => {
+    const { id } = req.params as { id: string };
+    return service.reconnectViaQr(req.user!.sub, id);
+  });
+
   app.post('/api/sessions/:id/pairing-code', async (req) => {
     const { id } = req.params as { id: string };
     const { phone } = z.object({ phone: z.string().min(8) }).parse(req.body);

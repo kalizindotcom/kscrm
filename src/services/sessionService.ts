@@ -19,6 +19,7 @@ export const sessionService = {
     apiClient.patch<Session>(`/api/sessions/${id}`, payload),
   remove: (id: string) => apiClient.delete<{ ok: boolean }>(`/api/sessions/${id}`),
   connect: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/connect`),
+  reconnectViaQr: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/reconnect-qr`),
   pause: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/pause`),
   resume: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/resume`),
   terminate: (id: string) => apiClient.post<{ ok: boolean }>(`/api/sessions/${id}/terminate`),

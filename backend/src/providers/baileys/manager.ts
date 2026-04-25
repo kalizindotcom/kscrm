@@ -944,6 +944,19 @@ export async function requestPairingCode(sessionId: string, phone: string): Prom
   return requestPromise;
 }
 
+export async function reconnectViaQr(sessionId: string): Promise<void> {
+  // Stop any running instance, wipe saved credentials, then start fresh (will emit QR)
+  await stop(sessionId, 'restart');
+  const authDir = path.resolve(env.BAILEYS_AUTH_DIR, sessionId);
+  await fs.rm(authDir, { recursive: true, force: true });
+  await fs.mkdir(authDir, { recursive: true });
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { status: 'pairing', qrCodeDataUrl: null, disconnectReason: null },
+  });
+  await ensure(sessionId);
+}
+
 export async function startAllPersisted() {
   const rows = await prisma.session.findMany({
     where: { status: { in: ['connected', 'pairing', 'paused', 'disconnected'] } },

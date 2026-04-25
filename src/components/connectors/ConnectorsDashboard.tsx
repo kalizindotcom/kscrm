@@ -163,6 +163,12 @@ export const ConnectorsDashboard: React.FC = () => {
           updateSession(session.id, { status: 'pairing' });
           setPairingSessionId(session.id);
           return;
+        case 'reconnect_qr':
+          await sessionService.reconnectViaQr(session.id);
+          updateSession(session.id, { status: 'pairing' });
+          selectSession(session.id);
+          toast.info(`Iniciando conexao para: ${session.name}`);
+          break;
         case 'connect':
         case 'qr':
           if (session.status === 'paused') {
