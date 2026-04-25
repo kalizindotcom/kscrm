@@ -567,44 +567,50 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Upload media ───────────────────────────────────────────────────────────
-  app.post('/api/campaigns/:id/media', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    await ensureCampaignOwned(id, req.user!.sub);
-    const file: MultipartFile | undefined = await (req as any).file();
-    if (!file) return reply.status(400).send({ error: 'Arquivo não enviado' });
+  app.post('/api/campaigns/:id/media', {
+    preHandler: requireAuth,
+  }, async (req, reply) => {
+    try {
+      const { id } = req.params as { id: string };
+      await ensureCampaignOwned(id, req.user!.sub);
+      const file: MultipartFile | undefined = await (req as any).file();
+      if (!file) return reply.status(400).send({ error: 'Arquivo não enviado' });
 
-    const mime = file.mimetype || 'application/octet-stream';
-    const ext = path.extname(file.filename || '') || guessExt(mime);
-    const safeName = `${id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
-    const fullPath = path.resolve(env.UPLOAD_DIR, safeName);
-    const buffer = await file.toBuffer();
-    await fs.writeFile(fullPath, buffer);
+      const mime = file.mimetype || 'application/octet-stream';
+      const ext = path.extname(file.filename || '') || guessExt(mime);
+      const safeName = `${id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
+      const fullPath = path.resolve(env.UPLOAD_DIR, safeName);
+      const buffer = await file.toBuffer();
+      await fs.writeFile(fullPath, buffer);
 
-    const mediaType: 'image' | 'video' | 'audio' | 'document' = mime.startsWith('image/')
-      ? 'image'
-      : mime.startsWith('video/')
-      ? 'video'
-      : mime.startsWith('audio/')
-      ? 'audio'
-      : 'document';
+      const mediaType: 'image' | 'video' | 'audio' | 'document' = mime.startsWith('image/')
+        ? 'image'
+        : mime.startsWith('video/')
+        ? 'video'
+        : mime.startsWith('audio/')
+        ? 'audio'
+        : 'document';
 
-    const mediaUrl = `/uploads/${safeName}`;
-    const updated = await prisma.campaign.update({
-      where: { id },
-      data: {
+      const mediaUrl = `/uploads/${safeName}`;
+      const updated = await prisma.campaign.update({
+        where: { id },
+        data: {
+          mediaUrl,
+          mediaType,
+          mediaMimetype: mime,
+          mediaFilename: file.filename ?? safeName,
+        },
+      });
+      return {
         mediaUrl,
         mediaType,
         mediaMimetype: mime,
-        mediaFilename: file.filename ?? safeName,
-      },
-    });
-    return {
-      mediaUrl,
-      mediaType,
-      mediaMimetype: mime,
-      mediaFilename: updated.mediaFilename,
-      size: buffer.length,
-    };
+        mediaFilename: updated.mediaFilename,
+        size: buffer.length,
+      };
+    } catch (error: any) {
+      throw error;
+    }
   });
 
   // ── Remove media ───────────────────────────────────────────────────────────
