@@ -319,7 +319,10 @@ export async function startWarmup(planId: string): Promise<void> {
   if (plan.sessionIds.length < 2) throw new Error('Selecione ao menos 2 sessões');
 
   const now = Date.now();
+  const isRestarting = plan.status === 'completed';
+
   const adjustedStartedAt = (() => {
+    if (isRestarting) return new Date(now); // Reset start time for completed plans
     if (!plan.startedAt) return new Date(now);
     if (!plan.pausedAt) return plan.startedAt;
     const pausedMs = Math.max(0, now - plan.pausedAt.getTime());
@@ -328,7 +331,13 @@ export async function startWarmup(planId: string): Promise<void> {
 
   await prisma.warmupPlan.update({
     where: { id: planId },
-    data: { status: 'running', startedAt: adjustedStartedAt, pausedAt: null },
+    data: {
+      status: 'running',
+      startedAt: adjustedStartedAt,
+      pausedAt: null,
+      currentDay: isRestarting ? 1 : plan.currentDay, // Reset day for completed plans
+      completedAt: isRestarting ? null : plan.completedAt, // Clear completion date
+    },
   });
 
   const controller: Controller = { planId, state: 'running', done: Promise.resolve() };
