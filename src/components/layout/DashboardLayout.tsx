@@ -28,6 +28,7 @@ import {
   Flame
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../../store';
+import { useTheme } from '../../contexts/ThemeContext';
 import { cn } from '../../lib/utils';
 import { getSocket } from '../../services/wsClient';
 import { warmupService } from '../../services/warmupService';
@@ -54,7 +55,8 @@ const menuItems = [
 ];
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { sidebarOpen, toggleSidebar, theme, setTheme, isFiring, isWarmingUp, setIsWarmingUp } = useAppStore();
+  const { sidebarOpen, toggleSidebar, isFiring, isWarmingUp, setIsWarmingUp } = useAppStore();
+  const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
@@ -281,8 +283,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           </div>
 
           <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+            <button
+              onClick={toggleTheme}
               className="p-2.5 rounded-xl hover:bg-primary/10 transition-all active:scale-95 group"
               title={theme === 'light' ? 'Ativar modo escuro' : 'Ativar modo claro'}
             >

@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { useAuthStore } from './store';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -37,28 +38,30 @@ const AppBootstrap: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <AppBootstrap>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
-            <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
-            <Route path="/campaigns" element={<PrivateRoute><CampaignsPage /></PrivateRoute>} />
-            <Route path="/groups" element={<PrivateRoute><GroupsPage /></PrivateRoute>} />
-            <Route path="/live-view" element={<PrivateRoute><LiveViewPage /></PrivateRoute>} />
-            <Route path="/messages" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
-            <Route path="/connectors" element={<PrivateRoute><ConnectorsPage /></PrivateRoute>} />
-            <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
-            <Route path="/warmup" element={<PrivateRoute><WarmupPage /></PrivateRoute>} />
-            <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </BrowserRouter>
-      </AppBootstrap>
-    </TooltipProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <AppBootstrap>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+              <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
+              <Route path="/campaigns" element={<PrivateRoute><CampaignsPage /></PrivateRoute>} />
+              <Route path="/groups" element={<PrivateRoute><GroupsPage /></PrivateRoute>} />
+              <Route path="/live-view" element={<PrivateRoute><LiveViewPage /></PrivateRoute>} />
+              <Route path="/messages" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
+              <Route path="/connectors" element={<PrivateRoute><ConnectorsPage /></PrivateRoute>} />
+              <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
+              <Route path="/warmup" element={<PrivateRoute><WarmupPage /></PrivateRoute>} />
+              <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </BrowserRouter>
+        </AppBootstrap>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

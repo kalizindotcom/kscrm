@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { apiClient } from '@/services/apiClient';
 import { resolveMediaUrl } from '@/lib/mediaUrl';
+import { QuickReplies } from './QuickReplies';
 
 interface PastePreview {
   file: File;
@@ -634,6 +635,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Quick Replies */}
+      <div className="z-10 bg-card/80 backdrop-blur-xl border-t border-white/5 px-4 py-3">
+        <QuickReplies onSelect={(content) => setMessage(content)} />
+      </div>
 
       {/* Footer input */}
       <div

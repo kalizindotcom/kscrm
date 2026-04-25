@@ -255,43 +255,56 @@ export const LiveViewPage: React.FC = () => {
 
         setConversations((prev) => {
           const byId = new Map(prev.map((item) => [item.id, item]));
-          return convs.map((c) => {
-            const previous = byId.get(c.id);
-            const isGroup = !!c.isGroup;
+          return convs
+            .filter((c) => {
+              // Filter out status/stories - they typically have @broadcast or @status in the phone
+              const phone = c.phone ?? '';
+              if (phone.includes('@broadcast') || phone.includes('@status') || phone.includes('status@')) {
+                return false;
+              }
+              // Also filter out empty conversations without proper phone numbers
+              if (!phone || phone.length < 8) {
+                return false;
+              }
+              return true;
+            })
+            .map((c) => {
+              const previous = byId.get(c.id);
+              const isGroup = !!c.isGroup;
 
-            // Compute real metrics from existing messages if available
-            const existingMsgs = previous?.messages ?? [];
-            const totalSent = existingMsgs.filter((m) => m.fromMe).length;
-            const totalReceived = existingMsgs.filter((m) => !m.fromMe).length;
-            const responseRate = totalSent + totalReceived > 0
-              ? `${Math.round((totalReceived / (totalSent + totalReceived)) * 100)}%`
-              : '—';
+              // Compute real metrics from existing messages if available
+              const existingMsgs = previous?.messages ?? [];
+              const totalSent = existingMsgs.filter((m) => m.fromMe).length;
+              const totalReceived = existingMsgs.filter((m) => !m.fromMe).length;
+              const responseRate = totalSent + totalReceived > 0
+                ? `${Math.round((totalReceived / (totalSent + totalReceived)) * 100)}%`
+                : '—';
 
-            return {
-              id: c.id,
-              contactName: c.contactName,
-              phoneNumber: isGroup ? c.phone ?? '' : formatPhoneDisplay(c.phone ?? ''),
-              rawPhone: c.phone ?? '',
-              isGroup,
-              avatar: c.avatar,
-              lastMessage: c.lastMessage || (isGroup ? 'Toque para abrir mensagens do grupo' : ''),
-              lastMessageTime: c.updatedAt,
-              createdAt: c.createdAt,
-              unreadCount: c.unreadCount,
-              status: c.status === 'resolved' ? 'archived' : 'active',
-              origin: isGroup ? 'grupo' : 'direct',
-              tags: isGroup ? ['grupo'] : [],
-              messages: previous?.messages ?? [],
-              hasMoreMessages: previous?.hasMoreMessages,
-              metrics: {
-                totalSent: previous ? totalSent : 0,
-                totalReceived: previous ? totalReceived : 0,
-                avgResponseTime: '—',
-                responseRate: previous ? responseRate : '—',
-                failureCount: 0,
-              },
-            } as LiveConversation;
-          });
+              return {
+                id: c.id,
+                contactName: c.contactName,
+                phoneNumber: isGroup ? c.phone ?? '' : formatPhoneDisplay(c.phone ?? ''),
+                rawPhone: c.phone ?? '',
+                isGroup,
+                avatar: c.avatar,
+                lastMessage: c.lastMessage || (isGroup ? 'Toque para abrir mensagens do grupo' : ''),
+                lastMessageTime: c.updatedAt,
+                createdAt: c.createdAt,
+                unreadCount: c.unreadCount,
+                status: c.status === 'resolved' ? 'archived' : 'active',
+                origin: isGroup ? 'grupo' : 'direct',
+                tags: isGroup ? ['grupo'] : [],
+                messages: previous?.messages ?? [],
+                hasMoreMessages: previous?.hasMoreMessages,
+                metrics: {
+                  totalSent: previous ? totalSent : 0,
+                  totalReceived: previous ? totalReceived : 0,
+                  avgResponseTime: '—',
+                  responseRate: previous ? responseRate : '—',
+                  failureCount: 0,
+                },
+              } as LiveConversation;
+            });
         });
         setLastUpdated(new Date());
       } catch {
