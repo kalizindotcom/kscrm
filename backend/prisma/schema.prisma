@@ -344,6 +344,18 @@ model WarmupPlan {
   intervalMin     Int      @default(30)
   intervalMax     Int      @default(120)
 
+  // Group mode
+  useGroup        Boolean  @default(false)
+  groupJid        String?
+
+  // Media & audio
+  mediaEnabled    Boolean  @default(false)
+  mediaFreq       Int      @default(5)
+  audioEnabled    Boolean  @default(false)
+
+  // Custom message bank (one message per entry)
+  customMessages  String[] @default([])
+
   // Progress tracking
   currentDay      Int      @default(0)
   startedAt       DateTime?
@@ -367,6 +379,7 @@ model WarmupLog {
   toSession   String
   message     String
   status      String   @default("sent") // sent | failed
+  mediaType   String   @default("text") // text | image | audio
   sentAt      DateTime @default(now())
 
   @@index([planId, sentAt])

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { startWarmup, stopWarmup, pauseWarmup, isActive } from './warmup-worker.js';
+import { startWarmup, stopWarmup, pauseWarmup, isActive, calcChipHealth } from './warmup-worker.js';
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -14,6 +14,12 @@ const createSchema = z.object({
   windowEnd: z.string().optional(),
   intervalMin: z.coerce.number().int().min(10).max(3600).default(30),
   intervalMax: z.coerce.number().int().min(10).max(3600).default(120),
+  useGroup: z.boolean().optional().default(false),
+  groupJid: z.string().optional(),
+  mediaEnabled: z.boolean().optional().default(false),
+  mediaFreq: z.coerce.number().int().min(1).max(50).optional().default(5),
+  audioEnabled: z.boolean().optional().default(false),
+  customMessages: z.array(z.string()).optional().default([]),
 });
 
 export async function warmupRoutes(app: FastifyInstance) {
@@ -182,6 +188,14 @@ export async function warmupRoutes(app: FastifyInstance) {
       ? Math.min(100, Math.round((plan.currentDay / plan.durationDays) * 100))
       : 0;
 
-    return { total, todayCount, failed, progress, currentDay: plan.currentDay, durationDays: plan.durationDays };
+    const chipHealth = calcChipHealth(plan, total, failed);
+
+    // Fetch session details
+    const sessions = await prisma.session.findMany({
+      where: { id: { in: plan.sessionIds } },
+      select: { id: true, name: true, phoneNumber: true, status: true },
+    });
+
+    return { total, todayCount, failed, progress, currentDay: plan.currentDay, durationDays: plan.durationDays, chipHealth, sessions };
   });
 }
