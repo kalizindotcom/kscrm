@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSessionStore } from '@/store/useSessionStore';
 import { SessionHeader } from '@/components/live-view/SessionHeader';
-import { SessionSelector } from '@/components/live-view/SessionSelector';
+import { SessionSelector } from '@/components/shared/SessionSelector';
 import { ChatList } from '@/components/live-view/ChatList';
 import { ChatWindow } from '@/components/live-view/ChatWindow';
 import { ContactSidebar } from '@/components/live-view/ContactSidebar';

@@ -33,6 +33,7 @@ import { ConversationDetailModal } from '../components/messages/ConversationDeta
 import { conversationService } from '../services/conversationService';
 import { useSessionStore } from '../store/useSessionStore';
 import { sessionService } from '../services/sessionService';
+import { SessionSelector } from '../components/shared/SessionSelector';
 
 const MessageCard = ({
   conv,
@@ -125,7 +126,7 @@ export const InboxPage: React.FC = () => {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  const { sessions, setSessions, selectedSessionId, openCreateSessionModal } = useSessionStore();
+  const { sessions, setSessions, selectedSessionId, selectSession, openCreateSessionModal } = useSessionStore();
 
   const resolveActiveSessionId = (sessionList = sessions) => {
     const selectedConnected =
@@ -225,7 +226,7 @@ export const InboxPage: React.FC = () => {
   return (
     <div className="space-y-6 sm:space-y-8 pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-6">
-        <div className="space-y-1">
+        <div className="space-y-1 flex-1">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-neon-gradient flex items-center gap-3">
             <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
             Mensagens
@@ -235,15 +236,22 @@ export const InboxPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          onClick={() => setIsNewMessageModalOpen(true)}
-          className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-black px-4 sm:px-6 py-4 sm:py-6 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_10px_30px_-10px_rgba(var(--primary),0.5)] transition-all active:scale-95 group"
-        >
-          <div className="bg-white/20 p-1 rounded-lg group-hover:rotate-90 transition-transform">
-            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <span className="text-xs sm:text-base">NOVA MENSAGEM</span>
-        </Button>
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <SessionSelector
+            sessions={sessions}
+            selectedSessionId={activeSessionId}
+            onSelectSession={selectSession}
+          />
+          <Button
+            onClick={() => setIsNewMessageModalOpen(true)}
+            className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-black px-4 sm:px-6 py-4 sm:py-6 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_10px_30px_-10px_rgba(var(--primary),0.5)] transition-all active:scale-95 group"
+          >
+            <div className="bg-white/20 p-1 rounded-lg group-hover:rotate-90 transition-transform">
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <span className="text-xs sm:text-base">NOVA MENSAGEM</span>
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (

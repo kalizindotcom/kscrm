@@ -32,6 +32,7 @@ import { groupsService } from '../services/groupsService';
 import { sessionService } from '../services/sessionService';
 import { useSessionStore } from '../store/useSessionStore';
 import { useAuthStore } from '../store';
+import { SessionSelector } from '../components/shared/SessionSelector';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
@@ -48,7 +49,7 @@ export const GroupsPage: React.FC = () => {
   const [isSaveAgendaModalOpen, setIsSaveAgendaModalOpen] = useState(false);
   const [agendaName, setAgendaName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const { sessions, setSessions, selectedSessionId, openCreateSessionModal } = useSessionStore();
+  const { sessions, setSessions, selectedSessionId, selectSession, openCreateSessionModal } = useSessionStore();
 
   const getActiveConnectedSessionId = (sessionList: typeof sessions = sessions) => {
     const selectedConnected =
@@ -335,7 +336,7 @@ export const GroupsPage: React.FC = () => {
   return (
     <div className="space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-neon-gradient">
             Grupos de WhatsApp
           </h1>
@@ -343,14 +344,21 @@ export const GroupsPage: React.FC = () => {
             Gerencie seus grupos e comunidades do WhatsApp.
           </p>
         </div>
-        <Button
-          onClick={handleGlobalSync}
-          disabled={isSyncing}
-          className="w-full sm:w-auto bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 neon-border min-w-[140px]"
-        >
-          <RefreshCw className={cn('w-4 h-4 mr-2', isSyncing && 'animate-spin')} />
-          {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
-        </Button>
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <SessionSelector
+            sessions={sessions}
+            selectedSessionId={activeSessionId}
+            onSelectSession={selectSession}
+          />
+          <Button
+            onClick={handleGlobalSync}
+            disabled={isSyncing}
+            className="w-full sm:w-auto bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 neon-border min-w-[140px]"
+          >
+            <RefreshCw className={cn('w-4 h-4 mr-2', isSyncing && 'animate-spin')} />
+            {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
