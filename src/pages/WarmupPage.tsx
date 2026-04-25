@@ -1377,7 +1377,9 @@ export const WarmupPage: React.FC = () => {
           ? 'paused'
           : data.stopped === true
             ? 'idle'
-            : data.status;
+            : data.started === true
+              ? 'running'
+              : data.status;
 
       if (nextStatus) {
         setPlans((prev) => prev.map((plan) => (
