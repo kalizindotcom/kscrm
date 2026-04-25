@@ -151,6 +151,8 @@ interface AppState {
   setTheme: (theme: 'light' | 'dark') => void;
   isFiring: boolean;
   setIsFiring: (isFiring: boolean) => void;
+  isWarmingUp: boolean;
+  setIsWarmingUp: (v: boolean) => void;
   activeCampaignId: string | null;
   setActiveCampaignId: (id: string | null) => void;
   progress: number;
@@ -169,6 +171,8 @@ export const useAppStore = create<AppState>((set) => ({
   },
   isFiring: false,
   setIsFiring: (isFiring) => set({ isFiring }),
+  isWarmingUp: false,
+  setIsWarmingUp: (v) => set({ isWarmingUp: v }),
   activeCampaignId: null,
   setActiveCampaignId: (id) => set({ activeCampaignId: id }),
   progress: 0,

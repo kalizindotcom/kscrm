@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../../store';
 import { cn } from '../../lib/utils';
+import { getSocket } from '../../services/wsClient';
 import { FlameButton } from '../ui/FlameButton';
 import {
   DropdownMenu,
@@ -53,12 +54,22 @@ const menuItems = [
 ];
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { sidebarOpen, toggleSidebar, theme, setTheme, isFiring } = useAppStore();
+  const { sidebarOpen, toggleSidebar, theme, setTheme, isFiring, isWarmingUp, setIsWarmingUp } = useAppStore();
   const { user, logout } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const handler = (data: any) => {
+      if (data.status === 'running') setIsWarmingUp(true);
+      else if (data.status === 'idle' || data.status === 'paused' || data.status === 'completed') setIsWarmingUp(false);
+    };
+    socket.on('warmup.progress', handler);
+    return () => { socket.off('warmup.progress', handler); };
+  }, [setIsWarmingUp]);
 
   const handleLogout = async () => {
     await logout().catch(() => undefined);
@@ -106,10 +117,31 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           </div>
 
           <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1.5 custom-scrollbar">
+            <style>{`
+              @keyframes fireGradient {
+                0%   { color: #ff4500; filter: drop-shadow(0 0 6px #ff4500); }
+                20%  { color: #ff6a00; filter: drop-shadow(0 0 8px #ff6a00); }
+                40%  { color: #ffb700; filter: drop-shadow(0 0 10px #ffb700); }
+                60%  { color: #ff8c00; filter: drop-shadow(0 0 8px #ff8c00); }
+                80%  { color: #ff3d00; filter: drop-shadow(0 0 6px #ff3d00); }
+                100% { color: #ff4500; filter: drop-shadow(0 0 6px #ff4500); }
+              }
+              @keyframes fireWiggle {
+                0%, 100% { transform: scale(1) rotate(-2deg); }
+                25%      { transform: scale(1.15) rotate(2deg); }
+                50%      { transform: scale(1.05) rotate(-1deg); }
+                75%      { transform: scale(1.1) rotate(3deg); }
+              }
+              .fire-icon {
+                animation: fireGradient 1.4s ease-in-out infinite, fireWiggle 0.8s ease-in-out infinite;
+              }
+            `}</style>
             {menuItems.map((item) => {
               const isActive = location.pathname === item.path;
               const isCampaigns = item.label === 'Campanhas';
+              const isWarmup = item.label === 'Aquecimento';
               const showCampaignRiver = isCampaigns && isFiring;
+              const showFireAnim = isWarmup && isWarmingUp;
 
               return (
                 <Link
@@ -117,26 +149,31 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   to={item.path}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative",
-                    isActive && !showCampaignRiver
-                      ? "bg-primary/10 text-primary shadow-[0_0_20px_hsla(var(--primary),0.05)] border border-primary/20" 
-                      : !showCampaignRiver && "hover:bg-primary/5 text-muted-foreground hover:text-primary",
+                    isActive && !showCampaignRiver && !showFireAnim
+                      ? "bg-primary/10 text-primary shadow-[0_0_20px_hsla(var(--primary),0.05)] border border-primary/20"
+                      : !showCampaignRiver && !showFireAnim && "hover:bg-primary/5 text-muted-foreground hover:text-primary",
                     showCampaignRiver && "river-sidebar-active scale-105",
+                    showFireAnim && "bg-orange-500/10 border border-orange-500/30 scale-105",
                     !sidebarOpen && "lg:justify-center"
                   )}
                   title={!sidebarOpen ? item.label : undefined}
                 >
                   <div className="relative flex items-center justify-center w-8 h-8 z-10">
                     <item.icon className={cn(
-                      "w-5 h-5 flex-shrink-0 z-10 transition-transform duration-300 group-hover:scale-110", 
-                      isActive && !showCampaignRiver && "text-primary",
-                      showCampaignRiver && "text-white drop-shadow-[0_0_6px_hsl(var(--secondary))]"
-                    )} />
+                      "w-5 h-5 flex-shrink-0 z-10 transition-transform duration-300 group-hover:scale-110",
+                      isActive && !showCampaignRiver && !showFireAnim && "text-primary",
+                      showCampaignRiver && "text-white drop-shadow-[0_0_6px_hsl(var(--secondary))]",
+                    )} style={showFireAnim ? { animation: 'fireGradient 1.4s ease-in-out infinite, fireWiggle 0.8s ease-in-out infinite' } : undefined} />
+                    {showFireAnim && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400 animate-ping" />
+                    )}
                   </div>
                   <div className="flex items-center flex-1 min-w-0 z-10">
                     <span className={cn(
-                      "truncate font-medium z-10 relative ml-2 transition-all duration-300", 
+                      "truncate font-medium z-10 relative ml-2 transition-all duration-300",
                       !sidebarOpen && "lg:hidden",
-                      showCampaignRiver && "drop-shadow-[0_0_6px_hsl(var(--secondary))]"
+                      showCampaignRiver && "drop-shadow-[0_0_6px_hsl(var(--secondary))]",
+                      showFireAnim && "text-orange-400",
                     )}>
                       {item.label}
                     </span>
