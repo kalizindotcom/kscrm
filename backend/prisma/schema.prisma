@@ -27,6 +27,7 @@ model User {
   contacts      Contact[]
   templates     MessageTemplate[]
   imports       ContactImport[]
+  warmupPlans   WarmupPlan[]
 }
 
 model RefreshToken {
@@ -316,6 +317,59 @@ model CampaignTarget {
 
   @@index([campaignId, status])
   @@index([campaignId, processedAt])
+}
+
+// ─────────── Warmup ───────────
+model WarmupPlan {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  status          String   @default("idle") // idle | running | paused | completed
+
+  // Sessions participating in this warmup (JSON array of session IDs)
+  sessionIds      String[]
+
+  // Ramp config
+  durationDays    Int      @default(14)
+  startMsgsPerDay Int      @default(5)
+  maxMsgsPerDay   Int      @default(40)
+
+  // Sending window (HH:mm UTC)
+  windowStart     String?
+  windowEnd       String?
+
+  // Interval between messages (seconds)
+  intervalMin     Int      @default(30)
+  intervalMax     Int      @default(120)
+
+  // Progress tracking
+  currentDay      Int      @default(0)
+  startedAt       DateTime?
+  pausedAt        DateTime?
+  completedAt     DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  logs            WarmupLog[]
+
+  @@index([userId, status])
+}
+
+model WarmupLog {
+  id          String   @id @default(cuid())
+  planId      String
+  plan        WarmupPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  fromSession String
+  toSession   String
+  message     String
+  status      String   @default("sent") // sent | failed
+  sentAt      DateTime @default(now())
+
+  @@index([planId, sentAt])
 }
 
 // ─────────── Audit ───────────

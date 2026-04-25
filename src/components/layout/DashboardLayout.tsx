@@ -24,7 +24,8 @@ import {
   Plus,
   Rocket,
   PlusCircle,
-  Import
+  Import,
+  Flame
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../../store';
 import { cn } from '../../lib/utils';
@@ -46,6 +47,7 @@ const menuItems = [
   { icon: UsersIcon, label: 'Grupos', path: '/groups' },
   { icon: MessageSquare, label: 'Mensagens', path: '/messages' },
   { icon: LinkIcon, label: 'Conectores', path: '/connectors' },
+  { icon: Flame, label: 'Aquecimento', path: '/warmup' },
   { icon: BarChart3, label: 'Relatórios', path: '/reports' },
   { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
