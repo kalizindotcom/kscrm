@@ -180,7 +180,7 @@ export async function warmupRoutes(app: FastifyInstance) {
 
     const [total, todayCount, failed] = await Promise.all([
       prisma.warmupLog.count({ where: { planId: id, status: 'sent' } }),
-      prisma.warmupLog.count({ where: { planId: id, sentAt: { gte: todayStart } } }),
+      prisma.warmupLog.count({ where: { planId: id, status: 'sent', sentAt: { gte: todayStart } } }),
       prisma.warmupLog.count({ where: { planId: id, status: 'failed' } }),
     ]);
 

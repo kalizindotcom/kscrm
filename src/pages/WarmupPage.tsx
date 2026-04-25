@@ -135,18 +135,19 @@ function LiveChatFeed({ planId, sessions }: { planId: string; sessions: string[]
 
   // Load initial recent logs
   useEffect(() => {
-    warmupService.logs(planId, 1, 12).then((res) => {
-      const initial: Bubble[] = res.items.reverse().map((log: WarmupLog) => ({
+    warmupService.logs(planId, 1, 20).then((res) => {
+      if (!res?.items?.length) return;
+      const initial: Bubble[] = [...res.items].reverse().map((log: WarmupLog) => ({
         id: log.id,
         fromId: log.fromSession,
         fromName: log.fromSession.slice(-4),
         message: log.message,
         status: log.status,
-        mediaType: log.mediaType as 'text' | 'image' | 'audio',
+        mediaType: (log.mediaType ?? 'text') as 'text' | 'image' | 'audio',
         timestamp: log.sentAt,
       }));
       setBubbles(initial);
-    }).catch(() => undefined);
+    }).catch((err) => console.warn('[LiveChatFeed] failed to load logs:', err));
   }, [planId]);
 
   // Listen for live messages

@@ -98,7 +98,7 @@ async function request<T>(
 
   if (!response.ok) {
     const payload = await parseResponse<any>(response).catch(() => ({}));
-    const message = payload?.message || `Erro HTTP ${response.status}`;
+    const message = payload?.error || payload?.message || `Erro HTTP ${response.status}`;
     throw new Error(message);
   }
 
