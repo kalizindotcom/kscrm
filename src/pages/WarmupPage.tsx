@@ -531,6 +531,7 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
   const isRunning = effectiveStatus === 'running';
   const isPaused = effectiveStatus === 'paused';
   const isIdle = effectiveStatus === 'idle';
+  const isCompleted = effectiveStatus === 'completed';
   const hasStarted = !!plan.startedAt;
 
   const quota = (() => {
@@ -584,9 +585,10 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
             </div>
 
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              {(isIdle || isPaused) && (
+              {(isIdle || isPaused || isCompleted) && (
                 <Button size="sm" variant="outline" className="h-8 px-2.5 border-green-500/40 text-green-400 hover:bg-green-500/10" onClick={onStart} disabled={actionLoading}>
                   <Play className="w-3.5 h-3.5" />
+                  {isCompleted && <span className="ml-1 text-xs">Reiniciar</span>}
                 </Button>
               )}
               {isRunning && (
@@ -616,7 +618,12 @@ const PlanCard = memo(function PlanCard({ plan, onStart, onPause, onStop, onDele
               <Button size="sm" variant="outline" className="h-8 px-2.5" onClick={() => setShowLogs(true)} title="Ver logs">
                 <BarChart2 className="w-3.5 h-3.5" />
               </Button>
-              {!isRunning && (
+              {!isRunning && !isCompleted && (
+                <Button size="sm" variant="outline" className="h-8 px-2.5 border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setConfirmDelete(true)} disabled={actionLoading}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+              {isCompleted && (
                 <Button size="sm" variant="outline" className="h-8 px-2.5 border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setConfirmDelete(true)} disabled={actionLoading}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
