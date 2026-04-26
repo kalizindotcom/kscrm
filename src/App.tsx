@@ -19,9 +19,6 @@ import ReportsPage from './pages/ReportsPage';
 import { LiveViewPage } from './pages/LiveViewPage';
 import { WarmupPage } from './pages/WarmupPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { OrganizationsPage } from './pages/admin/OrganizationsPage';
-import { OrganizationFormPage } from './pages/admin/OrganizationFormPage';
-import { OrganizationDetailPage } from './pages/admin/OrganizationDetailPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { UserFormPage } from './pages/admin/UserFormPage';
 import { UserDetailPage } from './pages/admin/UserDetailPage';
@@ -80,32 +77,16 @@ const App = () => (
 
               {/* Admin Routes — only super_admin */}
               <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-
-              {/* Organizations */}
-              <Route path="/admin/organizations" element={<AdminRoute><OrganizationsPage /></AdminRoute>} />
-              <Route path="/admin/organizations/new" element={<AdminRoute><OrganizationFormPage /></AdminRoute>} />
-              <Route path="/admin/organizations/:id" element={<AdminRoute><OrganizationDetailPage /></AdminRoute>} />
-              <Route path="/admin/organizations/:id/edit" element={<AdminRoute><OrganizationFormPage /></AdminRoute>} />
-
-              {/* Users */}
               <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
               <Route path="/admin/users/new" element={<AdminRoute><UserFormPage /></AdminRoute>} />
               <Route path="/admin/users/:id" element={<AdminRoute><UserDetailPage /></AdminRoute>} />
               <Route path="/admin/users/:id/edit" element={<AdminRoute><UserFormPage /></AdminRoute>} />
-
-              {/* Plans */}
               <Route path="/admin/plans" element={<AdminRoute><PlansPage /></AdminRoute>} />
               <Route path="/admin/plans/new" element={<AdminRoute><PlanFormPage /></AdminRoute>} />
               <Route path="/admin/plans/:id" element={<AdminRoute><PlanDetailPage /></AdminRoute>} />
               <Route path="/admin/plans/:id/edit" element={<AdminRoute><PlanFormPage /></AdminRoute>} />
-
-              {/* Sessions */}
               <Route path="/admin/sessions" element={<AdminRoute><SessionsPage /></AdminRoute>} />
-
-              {/* Subscriptions */}
               <Route path="/admin/subscriptions" element={<AdminRoute><SubscriptionsPage /></AdminRoute>} />
-
-              {/* Activity */}
               <Route path="/admin/activity" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
 
               {/* Debug Route - Temporário */}

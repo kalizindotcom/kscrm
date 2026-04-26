@@ -21,70 +21,14 @@ export interface Plan {
   updatedAt: string;
 }
 
-export interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-  domain?: string;
-  logo?: string;
-  planId: string;
-  plan: Plan;
-  planStartedAt: string;
-  planExpiresAt?: string;
-  billingEmail: string;
-  status: 'active' | 'trial' | 'suspended' | 'cancelled';
-  trialEndsAt?: string;
-  maxUsers: number;
-  maxSessions: number;
-  maxCampaigns: number;
-  maxContacts: number;
-  maxMessagesDay: number;
-  currentUsers: number;
-  currentSessions: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface OrganizationDetail extends Organization {
-  users: Array<{
-    id: string;
-    email: string;
-    name: string;
-    role: string;
-    status: string;
-    lastLoginAt?: string;
-    createdAt: string;
-  }>;
-  subscriptions: Subscription[];
-  usageLogs: UsageLog[];
-  sessions: Array<{
-    id: string;
-    name: string;
-    status: string;
-    phoneNumber?: string;
-    user: {
-      name: string;
-      email: string;
-    };
-    groups: Array<{
-      id: string;
-      name: string;
-      memberCount: number;
-    }>;
-  }>;
-  _count: {
-    users: number;
-    subscriptions: number;
-  };
-}
 
 export interface Subscription {
   id: string;
-  organizationId: string;
-  organization?: {
+  userId: string;
+  user?: {
     id: string;
     name: string;
-    slug: string;
+    email: string;
   };
   planId: string;
   plan: Plan;
@@ -101,17 +45,21 @@ export interface Subscription {
 
 export interface AdminUser {
   id: string;
-  organizationId: string;
-  organization: {
-    id: string;
-    name: string;
-    slug: string;
-  };
   email: string;
   name: string;
   role: 'super_admin' | 'admin' | 'user' | 'viewer';
   avatar?: string;
   status: 'active' | 'suspended' | 'invited';
+  subscription?: {
+    id: string;
+    plan: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+    status: string;
+    expiresAt?: string;
+  };
   lastLoginAt?: string;
   lastLoginIp?: string;
   permissions?: Record<string, boolean>;
@@ -146,11 +94,6 @@ export interface AdminUserDetail extends AdminUser {
 
 export interface ActivityLog {
   id: string;
-  organizationId: string;
-  organization?: {
-    name: string;
-    slug: string;
-  };
   userId?: string;
   user?: {
     name: string;
@@ -167,7 +110,7 @@ export interface ActivityLog {
 
 export interface UsageLog {
   id: string;
-  organizationId: string;
+  userId: string;
   date: string;
   messagesSent: number;
   campaignsFired: number;
@@ -178,17 +121,17 @@ export interface UsageLog {
 }
 
 export interface GlobalStats {
-  totalOrgs: number;
-  activeOrgs: number;
-  trialOrgs: number;
-  suspendedOrgs: number;
   totalUsers: number;
+  activeUsers: number;
+  suspendedUsers: number;
   totalSessions: number;
   activeSessions: number;
   totalCampaigns: number;
   runningCampaigns: number;
   mrr: number;
-  newOrgsLast30Days: number;
+  newUsersLast30Days: number;
+  activeSubscriptions: number;
+  expiredSubscriptions: number;
 }
 
 export interface UsageStats {
@@ -207,24 +150,14 @@ export interface PaginatedResponse<T> {
 }
 
 // Form types
-export interface OrganizationFormData {
-  name: string;
-  slug: string;
-  planId: string;
-  billingEmail: string;
-  status?: 'active' | 'trial' | 'suspended' | 'cancelled';
-  trialEndsAt?: string;
-  domain?: string;
-  logo?: string;
-}
-
 export interface UserFormData {
-  organizationId: string;
   email: string;
   password?: string;
   name: string;
   role?: 'super_admin' | 'admin' | 'user' | 'viewer';
   status?: 'active' | 'suspended' | 'invited';
+  planId?: string;
+  subscriptionExpiresAt?: string;
 }
 
 export interface PlanFormData {

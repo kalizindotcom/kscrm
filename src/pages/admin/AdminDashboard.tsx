@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Building2,
   Users,
   DollarSign,
   TrendingUp,
@@ -10,6 +9,8 @@ import {
   Clock,
   XCircle,
   ArrowRight,
+  CreditCard,
+  UserCheck,
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import type { GlobalStats } from '../../types/admin';
@@ -62,12 +63,12 @@ export const AdminDashboard: React.FC = () => {
 
   // Dados para gráficos (mock - você pode buscar do backend depois)
   const growthData = [
-    { name: 'Jan', value: stats.totalOrgs - 30 },
-    { name: 'Fev', value: stats.totalOrgs - 25 },
-    { name: 'Mar', value: stats.totalOrgs - 20 },
-    { name: 'Abr', value: stats.totalOrgs - 15 },
-    { name: 'Mai', value: stats.totalOrgs - 10 },
-    { name: 'Jun', value: stats.totalOrgs },
+    { name: 'Jan', value: stats.totalUsers - 30 },
+    { name: 'Fev', value: stats.totalUsers - 25 },
+    { name: 'Mar', value: stats.totalUsers - 20 },
+    { name: 'Abr', value: stats.totalUsers - 15 },
+    { name: 'Mai', value: stats.totalUsers - 10 },
+    { name: 'Jun', value: stats.totalUsers },
   ];
 
   const mrrData = [
@@ -80,33 +81,33 @@ export const AdminDashboard: React.FC = () => {
   ];
 
   const statusData = [
-    { name: 'Ativas', value: stats.activeOrgs },
-    { name: 'Trial', value: stats.trialOrgs },
-    { name: 'Suspensas', value: stats.suspendedOrgs },
+    { name: 'Ativos', value: stats.activeUsers },
+    { name: 'Suspensos', value: stats.suspendedUsers },
+    { name: 'Assinaturas Ativas', value: stats.activeSubscriptions },
   ];
 
   const statCards = [
     {
-      title: 'Organizações',
-      value: stats.totalOrgs,
-      subtitle: `${stats.activeOrgs} ativas`,
-      icon: Building2,
+      title: 'Usuários',
+      value: stats.totalUsers,
+      subtitle: `${stats.activeUsers} ativos`,
+      icon: Users,
       color: 'text-blue-500',
       bgColor: 'bg-blue-500/10',
       trend: {
-        value: stats.newOrgsLast30Days,
+        value: stats.newUsersLast30Days,
         isPositive: true,
       },
-      onClick: () => navigate('/admin/organizations'),
+      onClick: () => navigate('/admin/users'),
     },
     {
-      title: 'Usuários',
-      value: stats.totalUsers,
-      subtitle: `em ${stats.totalOrgs} organizações`,
-      icon: Users,
+      title: 'Assinaturas',
+      value: stats.activeSubscriptions,
+      subtitle: `${stats.expiredSubscriptions} expiradas`,
+      icon: CreditCard,
       color: 'text-green-500',
       bgColor: 'bg-green-500/10',
-      onClick: () => navigate('/admin/users'),
+      onClick: () => navigate('/admin/subscriptions'),
     },
     {
       title: 'MRR',
@@ -122,7 +123,7 @@ export const AdminDashboard: React.FC = () => {
     },
     {
       title: 'Crescimento',
-      value: `+${stats.newOrgsLast30Days}`,
+      value: `+${stats.newUsersLast30Days}`,
       subtitle: 'Últimos 30 dias',
       icon: TrendingUp,
       color: 'text-purple-500',
@@ -136,20 +137,20 @@ export const AdminDashboard: React.FC = () => {
 
   const statusCards = [
     {
-      title: 'Ativas',
-      value: stats.activeOrgs,
+      title: 'Usuários Ativos',
+      value: stats.activeUsers,
       icon: CheckCircle2,
       color: 'text-green-500',
     },
     {
-      title: 'Trial',
-      value: stats.trialOrgs,
-      icon: Clock,
-      color: 'text-yellow-500',
+      title: 'Assinaturas Ativas',
+      value: stats.activeSubscriptions,
+      icon: UserCheck,
+      color: 'text-blue-500',
     },
     {
-      title: 'Suspensas',
-      value: stats.suspendedOrgs,
+      title: 'Suspensos',
+      value: stats.suspendedUsers,
       icon: XCircle,
       color: 'text-red-500',
     },
@@ -186,7 +187,7 @@ export const AdminDashboard: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AnimatedChart
-          title="Crescimento de Organizações"
+          title="Crescimento de Usuários"
           data={growthData}
           type="area"
           dataKey="value"
@@ -209,7 +210,7 @@ export const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <AnimatedChart
-            title="Distribuição por Status"
+            title="Distribuição de Usuários e Assinaturas"
             data={statusData}
             type="pie"
             dataKey="value"
@@ -221,7 +222,7 @@ export const AdminDashboard: React.FC = () => {
 
         <AnimatedCard delay={0.8}>
           <CardHeader>
-            <CardTitle>Status das Organizações</CardTitle>
+            <CardTitle>Status do Sistema</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -310,15 +311,6 @@ export const AdminDashboard: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <button
-              onClick={() => navigate('/admin/organizations/new')}
-              className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-left"
-            >
-              <Building2 className="w-6 h-6 text-primary mb-2" />
-              <p className="font-semibold">Nova Organização</p>
-              <p className="text-xs text-muted-foreground">Criar novo cliente</p>
-            </button>
-
-            <button
               onClick={() => navigate('/admin/users/new')}
               className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-left"
             >
@@ -331,9 +323,18 @@ export const AdminDashboard: React.FC = () => {
               onClick={() => navigate('/admin/plans')}
               className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-left"
             >
-              <DollarSign className="w-6 h-6 text-primary mb-2" />
+              <CreditCard className="w-6 h-6 text-primary mb-2" />
               <p className="font-semibold">Gerenciar Planos</p>
               <p className="text-xs text-muted-foreground">Ver e editar planos</p>
+            </button>
+
+            <button
+              onClick={() => navigate('/admin/subscriptions')}
+              className="p-4 rounded-lg border-2 border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-left"
+            >
+              <DollarSign className="w-6 h-6 text-primary mb-2" />
+              <p className="font-semibold">Assinaturas</p>
+              <p className="text-xs text-muted-foreground">Gerenciar assinaturas</p>
             </button>
           </div>
         </CardContent>

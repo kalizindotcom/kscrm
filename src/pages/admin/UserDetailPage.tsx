@@ -6,7 +6,7 @@ import {
   User,
   Mail,
   Shield,
-  Building2,
+  CreditCard,
   Activity,
   Edit2,
   Ban,
@@ -239,13 +239,26 @@ export function UserDetailPage() {
                     <p className="font-medium">{roleMap[user.role]?.label}</p>
                   </div>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Organização</p>
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <p className="font-medium">{user.organization.name}</p>
-                  </div>
-                </div>
+                {user.subscription && (
+                  <>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Plano</p>
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-muted-foreground" />
+                        <p className="font-medium">{user.subscription.plan.name}</p>
+                      </div>
+                    </div>
+                    {user.subscription.expiresAt && (
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Expira em</p>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                          <p className="font-medium">{formatDate(user.subscription.expiresAt)}</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Criado em</p>
                   <div className="flex items-center gap-2">

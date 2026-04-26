@@ -57,9 +57,9 @@ const menuItems = [
 
 const adminMenuItems = [
   { icon: LayoutDashboard, label: 'Dashboard Admin', path: '/admin' },
-  { icon: Users, label: 'Organizações', path: '/admin/organizations' },
   { icon: UsersIcon, label: 'Usuários', path: '/admin/users' },
   { icon: CreditCard, label: 'Planos', path: '/admin/plans' },
+  { icon: Shield, label: 'Sessões', path: '/admin/sessions' },
   { icon: Activity, label: 'Logs', path: '/admin/activity' },
 ];
 
