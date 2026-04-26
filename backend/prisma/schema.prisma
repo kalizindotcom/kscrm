@@ -10,24 +10,135 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────── Organizations (Multi-Tenant) ───────────
+model Organization {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  domain          String?   @unique
+  logo            String?
+
+  // Billing
+  planId          String
+  plan            Plan      @relation(fields: [planId], references: [id])
+  planStartedAt   DateTime  @default(now())
+  planExpiresAt   DateTime?
+  billingEmail    String
+
+  // Status
+  status          String    @default("active") // active | suspended | cancelled | trial
+  trialEndsAt     DateTime?
+
+  // Limites atuais (cache do plano)
+  maxUsers        Int       @default(1)
+  maxSessions     Int       @default(1)
+  maxCampaigns    Int       @default(10)
+  maxContacts     Int       @default(1000)
+  maxMessagesDay  Int       @default(500)
+
+  // Uso atual
+  currentUsers    Int       @default(0)
+  currentSessions Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  users           User[]
+  subscriptions   Subscription[]
+  usageLogs       UsageLog[]
+  activityLogs    ActivityLog[]
+}
+
+model Plan {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String?
+
+  // Preço
+  price           Decimal   @default(0) @db.Decimal(10, 2)
+  currency        String    @default("BRL")
+  interval        String    @default("monthly") // monthly | yearly | lifetime
+
+  // Limites
+  maxUsers        Int       @default(1)
+  maxSessions     Int       @default(1)
+  maxCampaigns    Int       @default(10)
+  maxContacts     Int       @default(1000)
+  maxMessagesDay  Int       @default(500)
+  maxGroupsPerSession Int   @default(50)
+
+  // Features (JSON)
+  features        Json      @default("{}")
+
+  // Status
+  isActive        Boolean   @default(true)
+  isPublic        Boolean   @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organizations   Organization[]
+  subscriptions   Subscription[]
+}
+
+model Subscription {
+  id              String    @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  planId          String
+  plan            Plan      @relation(fields: [planId], references: [id])
+
+  status          String    // active | cancelled | expired | pending
+  startedAt       DateTime
+  expiresAt       DateTime?
+  cancelledAt     DateTime?
+
+  // Pagamento
+  paymentMethod   String?
+  paymentStatus   String?
+  amount          Decimal?  @db.Decimal(10, 2)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([organizationId, status])
+}
+
 // ─────────── Users / Auth ───────────
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  name          String
-  role          String    @default("admin") // admin | user
-  avatar        String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  sessions      Session[]
-  campaigns     Campaign[]
-  refreshTokens RefreshToken[]
-  contacts      Contact[]
-  templates     MessageTemplate[]
-  imports       ContactImport[]
-  warmupPlans   WarmupPlan[]
+  email           String    @unique
+  passwordHash    String
+  name            String
+  role            String    @default("user") // super_admin | admin | user | viewer
+  avatar          String?
+
+  // Status
+  status          String    @default("active") // active | suspended | invited
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+
+  // Permissões específicas (JSON)
+  permissions     Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions        Session[]
+  campaigns       Campaign[]
+  refreshTokens   RefreshToken[]
+  contacts        Contact[]
+  templates       MessageTemplate[]
+  imports         ContactImport[]
+  warmupPlans     WarmupPlan[]
+  activityLogs    ActivityLog[]
+
+  @@index([organizationId])
+  @@index([email])
 }
 
 model RefreshToken {
@@ -387,6 +498,48 @@ model WarmupLog {
 }
 
 // ─────────── Audit ───────────
+model ActivityLog {
+  id              String    @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action          String    // login | logout | session.create | campaign.fire | etc
+  module          String    // auth | sessions | campaigns | contacts
+  resource        String?   // ID do recurso afetado
+  details         Json?     // Dados adicionais
+
+  ipAddress       String?
+  userAgent       String?
+
+  timestamp       DateTime  @default(now())
+
+  @@index([organizationId, timestamp])
+  @@index([userId, timestamp])
+  @@index([action, timestamp])
+}
+
+model UsageLog {
+  id              String    @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  date            DateTime  @db.Date
+
+  // Contadores diários
+  messagesSent    Int       @default(0)
+  campaignsFired  Int       @default(0)
+  sessionsActive  Int       @default(0)
+  apiCalls        Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, date])
+  @@index([organizationId, date])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String

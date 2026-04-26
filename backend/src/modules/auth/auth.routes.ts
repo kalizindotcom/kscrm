@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import * as service from './auth.service.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { logLogin, logLogout } from '../../lib/activity-logger.js';
 
 const loginSchema = z.object({ email: z.string().min(1), password: z.string().min(1) });
 const refreshSchema = z.object({ refreshToken: z.string().min(10) });
@@ -42,6 +43,10 @@ export async function authRoutes(app: FastifyInstance) {
     }
     const body = loginSchema.parse(req.body);
     const result = await service.login(body.email, body.password);
+
+    // Log login activity
+    await logLogin(req, result.user.id, result.user.email);
+
     return reply.send(result);
   });
 
@@ -59,6 +64,12 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/api/auth/logout', async (req, reply) => {
     const body = refreshSchema.parse(req.body);
     await service.logout(body.refreshToken);
+
+    // Log logout if user is authenticated
+    if (req.user) {
+      await logLogout(req, req.user.sub);
+    }
+
     return reply.send({ ok: true });
   });
 

@@ -3,6 +3,13 @@ import { prisma } from '../../db/client.js';
 import { signAccessToken, signRefreshToken, verifyRefresh } from '../../lib/jwt.js';
 import { UnauthorizedError } from '../../lib/errors.js';
 
+interface TokenPayload {
+  sub: string;
+  email: string;
+  role: string;
+  organizationId: string;
+}
+
 export async function login(email: string, password: string) {
   const identifier = email.trim();
   const user = await prisma.user.findFirst({
@@ -15,7 +22,12 @@ export async function login(email: string, password: string) {
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) throw new UnauthorizedError('Credenciais inválidas');
 
-  const payload = { sub: user.id, email: user.email, role: user.role };
+  const payload: TokenPayload = {
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    organizationId: user.organizationId
+  };
   const token = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
 

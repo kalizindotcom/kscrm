@@ -16,6 +16,7 @@ import { recoverAndSchedule as recoverCampaigns, pauseAllActive } from './module
 import { warmupRoutes } from './modules/warmup/warmup.routes.js';
 import { recoverWarmups } from './modules/warmup/warmup-worker.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
+import { adminRoutes } from './modules/admin/admin.routes.js';
 import { contactsRoutes } from './modules/contacts/contacts.routes.js';
 import { sessionsRoutes } from './modules/sessions/sessions.routes.js';
 import { messagesRoutes } from './modules/messages/messages.routes.js';
@@ -58,6 +59,7 @@ app.get('/health', async () => {
 });
 
 await app.register(authRoutes);
+await app.register(adminRoutes);
 await app.register(contactsRoutes);
 await app.register(sessionsRoutes);
 await app.register(messagesRoutes);
