@@ -13,8 +13,12 @@ export async function debugRoutes(app: FastifyInstance) {
           email: true,
           name: true,
           role: true,
-          organizationId: true,
           status: true,
+          subscription: {
+            include: {
+              plan: true,
+            },
+          },
         },
       });
 
@@ -27,7 +31,6 @@ export async function debugRoutes(app: FastifyInstance) {
         sub: admin.id,
         email: admin.email,
         role: admin.role,
-        organizationId: admin.organizationId ?? undefined,
       };
 
       const secret = process.env.JWT_SECRET || 'your-secret-key';

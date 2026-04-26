@@ -16,33 +16,15 @@ async function run() {
       slug: 'free',
       description: 'Plano gratuito com recursos básicos',
       price: 0,
-      maxUsers: 5,
       maxSessions: 3,
       maxCampaigns: 50,
       maxContacts: 5000,
       maxMessagesDay: 500,
+      maxGroupsPerSession: 50,
     },
   });
 
-  // Criar organização padrão se não existir
-  const defaultOrg = await prisma.organization.upsert({
-    where: { slug: 'main' },
-    update: {},
-    create: {
-      id: 'org_default',
-      name: 'Organização Principal',
-      slug: 'main',
-      planId: defaultPlan.id,
-      billingEmail: env.SEED_ADMIN_EMAIL,
-      status: 'active',
-      maxUsers: 5,
-      maxSessions: 3,
-      maxCampaigns: 50,
-      maxContacts: 5000,
-      maxMessagesDay: 500,
-    },
-  });
-
+  // Criar usuário admin se não existir
   const user = await prisma.user.upsert({
     where: { email: env.SEED_ADMIN_EMAIL },
     update: {
@@ -55,7 +37,18 @@ async function run() {
       name: env.SEED_ADMIN_NAME,
       passwordHash,
       role: 'super_admin',
-      organizationId: defaultOrg.id,
+    },
+  });
+
+  // Criar assinatura para o admin se não existir
+  await prisma.subscription.upsert({
+    where: { userId: user.id },
+    update: {},
+    create: {
+      userId: user.id,
+      planId: defaultPlan.id,
+      status: 'active',
+      startedAt: new Date(),
     },
   });
 
