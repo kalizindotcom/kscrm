@@ -174,6 +174,13 @@ export const UsersPage: React.FC = () => {
             <Plus className="w-4 h-4 mr-2" />
             Novo Usuário
           </Button>
+          <Button
+            onClick={() => setShowTrialModal(true)}
+            className="gap-2 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600"
+          >
+            <Sparkles className="w-4 h-4" />
+            Criar Trial
+          </Button>
         </div>
       </motion.div>
 
