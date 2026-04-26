@@ -2,7 +2,7 @@ export type User = {
   id: string;
   email?: string;
   name: string;
-  role: 'admin' | 'user';
+  role: 'super_admin' | 'admin' | 'user' | 'viewer';
   avatar?: string;
 };
 

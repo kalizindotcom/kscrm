@@ -56,7 +56,6 @@ const menuItems = [
 ];
 
 const adminMenuItems = [
-  { icon: Shield, label: 'Admin', path: '/admin' },
   { icon: LayoutDashboard, label: 'Dashboard Admin', path: '/admin' },
   { icon: Users, label: 'Organizações', path: '/admin/organizations' },
   { icon: UsersIcon, label: 'Usuários', path: '/admin/users' },
@@ -231,7 +230,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                     Administração
                   </p>
                 </div>
-                {adminMenuItems.slice(1).map((item) => {
+                {adminMenuItems.map((item) => {
                   const isActive = location.pathname === item.path;
                   return (
                     <Link

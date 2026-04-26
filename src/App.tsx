@@ -31,6 +31,13 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return isAuthenticated ? <DashboardLayout>{children}</DashboardLayout> : <Navigate to="/login" />;
 };
 
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, user } = useAuthStore();
+  if (!isAuthenticated) return <Navigate to="/login" />;
+  if (user?.role !== 'super_admin') return <Navigate to="/" />;
+  return <DashboardLayout>{children}</DashboardLayout>;
+};
+
 const AppBootstrap: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hydrateMe = useAuthStore((state) => state.hydrateMe);
 
@@ -62,12 +69,12 @@ const App = () => (
               <Route path="/warmup" element={<PrivateRoute><WarmupPage /></PrivateRoute>} />
               <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
 
-              {/* Admin Routes */}
-              <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
-              <Route path="/admin/organizations" element={<PrivateRoute><OrganizationsPage /></PrivateRoute>} />
-              <Route path="/admin/users" element={<PrivateRoute><UsersPage /></PrivateRoute>} />
-              <Route path="/admin/plans" element={<PrivateRoute><PlansPage /></PrivateRoute>} />
-              <Route path="/admin/activity" element={<PrivateRoute><ActivityLogsPage /></PrivateRoute>} />
+              {/* Admin Routes — only super_admin */}
+              <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+              <Route path="/admin/organizations" element={<AdminRoute><OrganizationsPage /></AdminRoute>} />
+              <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+              <Route path="/admin/plans" element={<AdminRoute><PlansPage /></AdminRoute>} />
+              <Route path="/admin/activity" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
 
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
