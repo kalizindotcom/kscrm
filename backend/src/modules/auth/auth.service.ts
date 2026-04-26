@@ -7,7 +7,7 @@ interface TokenPayload {
   sub: string;
   email: string;
   role: string;
-  organizationId: string;
+  organizationId?: string;
 }
 
 export async function login(email: string, password: string) {
