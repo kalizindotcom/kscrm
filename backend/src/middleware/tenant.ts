@@ -20,6 +20,64 @@ export async function requireTenant(req: FastifyRequest, _reply: FastifyReply) {
     throw new UnauthorizedError('Not authenticated');
   }
 
+  // Se não tiver organizationId, é usuário antigo - criar organização padrão
+  if (!user.organizationId) {
+    // Buscar ou criar organização padrão
+    let defaultOrg = await prisma.organization.findUnique({
+      where: { slug: 'main' },
+      include: { plan: true },
+    });
+
+    if (!defaultOrg) {
+      // Criar plano padrão se não existir
+      let defaultPlan = await prisma.plan.findUnique({ where: { slug: 'free' } });
+      if (!defaultPlan) {
+        defaultPlan = await prisma.plan.create({
+          data: {
+            id: 'plan_free_default',
+            name: 'Free',
+            slug: 'free',
+            description: 'Plano gratuito com recursos básicos',
+            price: 0,
+            maxUsers: 5,
+            maxSessions: 3,
+            maxCampaigns: 50,
+            maxContacts: 5000,
+            maxMessagesDay: 500,
+          },
+        });
+      }
+
+      // Criar organização padrão
+      defaultOrg = await prisma.organization.create({
+        data: {
+          id: 'org_default',
+          name: 'Organização Principal',
+          slug: 'main',
+          planId: defaultPlan.id,
+          billingEmail: 'admin@kscsm.com',
+          status: 'active',
+          maxUsers: 5,
+          maxSessions: 3,
+          maxCampaigns: 50,
+          maxContacts: 5000,
+          maxMessagesDay: 500,
+        },
+        include: { plan: true },
+      });
+    }
+
+    // Atualizar usuário com organizationId
+    await prisma.user.update({
+      where: { id: user.sub },
+      data: { organizationId: defaultOrg.id },
+    });
+
+    req.organization = defaultOrg as Organization & { plan: Plan };
+    req.plan = defaultOrg.plan;
+    return;
+  }
+
   // Carregar organização com plano
   const org = await prisma.organization.findUnique({
     where: { id: user.organizationId },
