@@ -26,7 +26,7 @@ export async function login(email: string, password: string) {
     sub: user.id,
     email: user.email,
     role: user.role,
-    organizationId: user.organizationId || undefined
+    organizationId: user.organizationId ?? undefined
   };
   const token = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);

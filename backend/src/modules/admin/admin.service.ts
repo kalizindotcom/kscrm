@@ -357,11 +357,13 @@ export async function deleteUser(id: string) {
 
   await prisma.user.delete({ where: { id } });
 
-  // Decrementar contador de usuários
-  await prisma.organization.update({
-    where: { id: user.organizationId },
-    data: { currentUsers: { decrement: 1 } },
-  });
+  // Decrementar contador de usuários se tiver organizationId
+  if (user.organizationId) {
+    await prisma.organization.update({
+      where: { id: user.organizationId },
+      data: { currentUsers: { decrement: 1 } },
+    });
+  }
 
   return { ok: true };
 }
