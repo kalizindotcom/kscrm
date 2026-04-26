@@ -49,7 +49,7 @@ model Subscription {
   planId          String
   plan            Plan      @relation(fields: [planId], references: [id])
 
-  status          String    // active | cancelled | expired | pending
+  status          String    // active | cancelled | expired | pending | trial
   startedAt       DateTime
   expiresAt       DateTime?
   cancelledAt     DateTime?

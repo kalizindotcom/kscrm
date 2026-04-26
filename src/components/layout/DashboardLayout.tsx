@@ -33,6 +33,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { cn } from '../../lib/utils';
 import { getSocket } from '../../services/wsClient';
 import { warmupService } from '../../services/warmupService';
+import { TrialBanner } from '../TrialBanner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -286,6 +287,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {/* Trial Banner */}
+        <TrialBanner />
+
         <header className="h-16 border-b border-primary/20 bg-card/40 backdrop-blur-md flex items-center justify-between px-2 sm:px-4 sticky top-0 z-40 transition-all duration-300">
           <div className="flex items-center gap-2 sm:gap-4">
             <button 

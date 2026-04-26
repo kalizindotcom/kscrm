@@ -160,6 +160,28 @@ export interface UserFormData {
   subscriptionExpiresAt?: string;
 }
 
+export interface TrialUserFormData {
+  name: string;
+  email: string;
+  phone?: string;
+  duration: number; // em horas
+  maxSessions: number;
+  maxCampaigns: number;
+  maxContacts: number;
+  maxMessagesDay: number;
+}
+
+export interface TrialPreset {
+  id: string;
+  name: string;
+  duration: number; // em horas
+  maxSessions: number;
+  maxCampaigns: number;
+  maxContacts: number;
+  maxMessagesDay: number;
+  description: string;
+}
+
 export interface PlanFormData {
   name: string;
   slug: string;

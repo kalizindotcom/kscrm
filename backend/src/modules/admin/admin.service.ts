@@ -180,6 +180,66 @@ export async function suspendUser(id: string) {
   });
 }
 
+// ─────────── Trial Users ───────────
+
+export async function createTrialUser(data: {
+  name: string;
+  email: string;
+  phone?: string;
+  password: string;
+  duration: number;
+  maxSessions: number;
+  maxCampaigns: number;
+  maxContacts: number;
+  maxMessagesDay: number;
+  expiresAt: string;
+}) {
+  const existing = await prisma.user.findUnique({ where: { email: data.email } });
+  if (existing) throw new ForbiddenError('Email already in use');
+
+  const passwordHash = await bcrypt.hash(data.password, 10);
+
+  const trialPlan = await prisma.plan.create({
+    data: {
+      name: `Trial - ${data.name}`,
+      slug: `trial-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      description: `Plano trial de ${data.duration}h para ${data.name}`,
+      price: 0,
+      currency: 'BRL',
+      interval: 'monthly',
+      maxSessions: data.maxSessions,
+      maxCampaigns: data.maxCampaigns,
+      maxContacts: data.maxContacts,
+      maxMessagesDay: data.maxMessagesDay,
+      maxGroupsPerSession: 50,
+      isActive: true,
+      isPublic: false,
+    },
+  });
+
+  const user = await prisma.user.create({
+    data: {
+      email: data.email,
+      passwordHash,
+      name: data.name,
+      role: 'user',
+      status: 'active',
+    },
+  });
+
+  await prisma.subscription.create({
+    data: {
+      userId: user.id,
+      planId: trialPlan.id,
+      status: 'trial',
+      startedAt: new Date(),
+      expiresAt: new Date(data.expiresAt),
+    },
+  });
+
+  return { user, plan: trialPlan };
+}
+
 // ─────────── Plans ───────────
 
 export async function listPlans() {

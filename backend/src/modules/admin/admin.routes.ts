@@ -128,6 +128,25 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.suspendUser(id);
   });
 
+  // ─────────── Trial Users ───────────
+
+  app.post('/api/admin/users/trial', async (req) => {
+    const body = z.object({
+      name: z.string().min(3),
+      email: z.string().email(),
+      phone: z.string().optional(),
+      password: z.string().min(6),
+      duration: z.number().min(1),
+      maxSessions: z.number().min(1),
+      maxCampaigns: z.number().min(1),
+      maxContacts: z.number().min(1),
+      maxMessagesDay: z.number().min(1),
+      expiresAt: z.string().datetime(),
+    }).parse(req.body);
+
+    return service.createTrialUser(body);
+  });
+
   // ─────────── Plans ───────────
 
   app.get('/api/admin/plans', async () => {

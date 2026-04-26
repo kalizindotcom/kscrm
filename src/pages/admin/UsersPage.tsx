@@ -10,6 +10,7 @@ import {
   Shield,
   User,
   Clock,
+  Sparkles,
 } from 'lucide-react';
 import { Card, CardContent, Button, Badge } from '../../components/ui/shared';
 import { adminService } from '../../services/adminService';
@@ -23,6 +24,8 @@ import { ConfirmDialog } from '../../components/admin/ConfirmDialog';
 import { EmptyState } from '../../components/admin/EmptyState';
 import { TableSkeleton } from '../../components/admin/SkeletonLoader';
 import { ExportButton } from '../../components/admin/ExportButton';
+import { CreateTrialUserModal } from '../../components/admin/CreateTrialUserModal';
+import { TrialCredentialsModal } from '../../components/admin/TrialCredentialsModal';
 import { motion } from 'framer-motion';
 
 const roleMap: Record<string, { label: string; icon: any; color: string }> = {
@@ -53,6 +56,13 @@ export const UsersPage: React.FC = () => {
     ids: string[];
   }>({ isOpen: false, action: null, ids: [] });
   const [actionLoading, setActionLoading] = useState(false);
+  const [showTrialModal, setShowTrialModal] = useState(false);
+  const [trialCredentials, setTrialCredentials] = useState<{
+    name: string;
+    email: string;
+    password: string;
+    expiresAt: string;
+  } | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -436,6 +446,25 @@ export const UsersPage: React.FC = () => {
         variant="danger"
         loading={actionLoading}
       />
+
+      {/* Trial Modals */}
+      <CreateTrialUserModal
+        isOpen={showTrialModal}
+        onClose={() => setShowTrialModal(false)}
+        onSuccess={(credentials) => {
+          setShowTrialModal(false);
+          setTrialCredentials(credentials as any);
+          loadUsers();
+        }}
+      />
+
+      {trialCredentials && (
+        <TrialCredentialsModal
+          isOpen={!!trialCredentials}
+          onClose={() => setTrialCredentials(null)}
+          credentials={trialCredentials}
+        />
+      )}
     </div>
   );
 };
