@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "update-admin": "tsx scripts/update-admin-role.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
