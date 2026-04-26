@@ -27,7 +27,10 @@ import { UserFormPage } from './pages/admin/UserFormPage';
 import { UserDetailPage } from './pages/admin/UserDetailPage';
 import { PlansPage } from './pages/admin/PlansPage';
 import { PlanFormPage } from './pages/admin/PlanFormPage';
+import { PlanDetailPage } from './pages/admin/PlanDetailPage';
 import { ActivityLogsPage } from './pages/admin/ActivityLogsPage';
+import { SessionsPage } from './pages/admin/SessionsPage';
+import { SubscriptionsPage } from './pages/admin/SubscriptionsPage';
 import { DebugAuthPage } from './pages/DebugAuthPage';
 
 const queryClient = new QueryClient();
@@ -93,7 +96,14 @@ const App = () => (
               {/* Plans */}
               <Route path="/admin/plans" element={<AdminRoute><PlansPage /></AdminRoute>} />
               <Route path="/admin/plans/new" element={<AdminRoute><PlanFormPage /></AdminRoute>} />
+              <Route path="/admin/plans/:id" element={<AdminRoute><PlanDetailPage /></AdminRoute>} />
               <Route path="/admin/plans/:id/edit" element={<AdminRoute><PlanFormPage /></AdminRoute>} />
+
+              {/* Sessions */}
+              <Route path="/admin/sessions" element={<AdminRoute><SessionsPage /></AdminRoute>} />
+
+              {/* Subscriptions */}
+              <Route path="/admin/subscriptions" element={<AdminRoute><SubscriptionsPage /></AdminRoute>} />
 
               {/* Activity */}
               <Route path="/admin/activity" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
