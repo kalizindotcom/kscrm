@@ -32,7 +32,6 @@ export const ActivityLogsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({
-    organizationId: '',
     userId: '',
     action: '',
     module: '',
@@ -47,8 +46,7 @@ export const ActivityLogsPage: React.FC = () => {
   const loadLogs = async () => {
     try {
       setLoading(true);
-      const result = await adminService.getActivity({
-        organizationId: filters.organizationId || undefined,
+      const result = await adminService.getActivityLogs({
         userId: filters.userId || undefined,
         action: filters.action || undefined,
         module: filters.module || undefined,
@@ -75,7 +73,6 @@ export const ActivityLogsPage: React.FC = () => {
 
   const handleClearFilters = () => {
     setFilters({
-      organizationId: '',
       userId: '',
       action: '',
       module: '',

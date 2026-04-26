@@ -2,202 +2,10 @@ import { prisma } from '../../db/client.js';
 import { NotFoundError, ForbiddenError } from '../../lib/errors.js';
 import bcrypt from 'bcryptjs';
 
-// ─────────── Organizations ───────────
-
-export async function listOrganizations(params?: {
-  search?: string;
-  status?: string;
-  planId?: string;
-  page?: number;
-  pageSize?: number;
-}) {
-  const page = params?.page ?? 1;
-  const pageSize = Math.min(params?.pageSize ?? 50, 100);
-  const skip = (page - 1) * pageSize;
-
-  const where: any = {};
-  if (params?.search) {
-    where.OR = [
-      { name: { contains: params.search, mode: 'insensitive' } },
-      { slug: { contains: params.search, mode: 'insensitive' } },
-      { billingEmail: { contains: params.search, mode: 'insensitive' } },
-    ];
-  }
-  if (params?.status) where.status = params.status;
-  if (params?.planId) where.planId = params.planId;
-
-  const [items, total] = await Promise.all([
-    prisma.organization.findMany({
-      where,
-      include: {
-        plan: true,
-        _count: {
-          select: {
-            users: true,
-            subscriptions: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: pageSize,
-    }),
-    prisma.organization.count({ where }),
-  ]);
-
-  return { items, total, page, pageSize };
-}
-
-export async function getOrganization(id: string) {
-  const org = await prisma.organization.findUnique({
-    where: { id },
-    include: {
-      plan: true,
-      users: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          status: true,
-          lastLoginAt: true,
-          createdAt: true,
-        },
-      },
-      subscriptions: {
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: { plan: true },
-      },
-      usageLogs: {
-        orderBy: { date: 'desc' },
-        take: 30,
-      },
-    },
-  });
-
-  if (!org) throw new NotFoundError('Organization not found');
-
-  // Buscar sessões ativas
-  const sessions = await prisma.session.findMany({
-    where: { user: { organizationId: id } },
-    include: {
-      user: { select: { name: true, email: true } },
-      groups: { select: { id: true, name: true, memberCount: true } },
-    },
-  });
-
-  return { ...org, sessions };
-}
-
-export async function createOrganization(data: {
-  name: string;
-  slug: string;
-  planId: string;
-  billingEmail: string;
-  status?: string;
-  trialEndsAt?: Date;
-}) {
-  // Verificar se slug já existe
-  const existing = await prisma.organization.findUnique({
-    where: { slug: data.slug },
-  });
-  if (existing) throw new ForbiddenError('Slug already in use');
-
-  // Buscar limites do plano
-  const plan = await prisma.plan.findUnique({ where: { id: data.planId } });
-  if (!plan) throw new NotFoundError('Plan not found');
-
-  return prisma.organization.create({
-    data: {
-      name: data.name,
-      slug: data.slug,
-      planId: data.planId,
-      billingEmail: data.billingEmail,
-      status: data.status ?? 'active',
-      trialEndsAt: data.trialEndsAt,
-      maxUsers: plan.maxUsers,
-      maxSessions: plan.maxSessions,
-      maxCampaigns: plan.maxCampaigns,
-      maxContacts: plan.maxContacts,
-      maxMessagesDay: plan.maxMessagesDay,
-    },
-    include: { plan: true },
-  });
-}
-
-export async function updateOrganization(
-  id: string,
-  data: Partial<{
-    name: string;
-    slug: string;
-    domain: string;
-    logo: string;
-    planId: string;
-    billingEmail: string;
-    status: string;
-    trialEndsAt: Date;
-    planExpiresAt: Date;
-  }>
-) {
-  const org = await prisma.organization.findUnique({ where: { id } });
-  if (!org) throw new NotFoundError('Organization not found');
-
-  // Se mudou o plano, atualizar limites
-  if (data.planId && data.planId !== org.planId) {
-    const plan = await prisma.plan.findUnique({ where: { id: data.planId } });
-    if (!plan) throw new NotFoundError('Plan not found');
-
-    return prisma.organization.update({
-      where: { id },
-      data: {
-        ...data,
-        maxUsers: plan.maxUsers,
-        maxSessions: plan.maxSessions,
-        maxCampaigns: plan.maxCampaigns,
-        maxContacts: plan.maxContacts,
-        maxMessagesDay: plan.maxMessagesDay,
-        planStartedAt: new Date(),
-      },
-      include: { plan: true },
-    });
-  }
-
-  return prisma.organization.update({
-    where: { id },
-    data,
-    include: { plan: true },
-  });
-}
-
-export async function deleteOrganization(id: string) {
-  const org = await prisma.organization.findUnique({ where: { id } });
-  if (!org) throw new NotFoundError('Organization not found');
-
-  // Deletar em cascata (Prisma cuida disso)
-  await prisma.organization.delete({ where: { id } });
-  return { ok: true };
-}
-
-export async function suspendOrganization(id: string) {
-  return prisma.organization.update({
-    where: { id },
-    data: { status: 'suspended' },
-  });
-}
-
-export async function activateOrganization(id: string) {
-  return prisma.organization.update({
-    where: { id },
-    data: { status: 'active' },
-  });
-}
-
 // ─────────── Users (Admin) ───────────
 
 export async function listAllUsers(params?: {
   search?: string;
-  organizationId?: string;
   role?: string;
   status?: string;
   page?: number;
@@ -214,7 +22,6 @@ export async function listAllUsers(params?: {
       { email: { contains: params.search, mode: 'insensitive' } },
     ];
   }
-  if (params?.organizationId) where.organizationId = params.organizationId;
   if (params?.role) where.role = params.role;
   if (params?.status) where.status = params.status;
 
@@ -222,7 +29,11 @@ export async function listAllUsers(params?: {
     prisma.user.findMany({
       where,
       include: {
-        organization: { select: { id: true, name: true, slug: true } },
+        subscription: {
+          include: {
+            plan: { select: { id: true, name: true, slug: true } },
+          },
+        },
         _count: {
           select: {
             sessions: true,
@@ -245,7 +56,7 @@ export async function getUserDetails(id: string) {
   const user = await prisma.user.findUnique({
     where: { id },
     include: {
-      organization: { include: { plan: true } },
+      subscription: { include: { plan: true } },
       sessions: {
         select: {
           id: true,
@@ -280,22 +91,17 @@ export async function getUserDetails(id: string) {
 }
 
 export async function createUser(data: {
-  organizationId: string;
   email: string;
   password: string;
   name: string;
   role?: string;
   status?: string;
+  planId?: string;
+  subscriptionExpiresAt?: Date;
 }) {
   // Verificar se email já existe
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) throw new ForbiddenError('Email already in use');
-
-  // Verificar se organização existe
-  const org = await prisma.organization.findUnique({
-    where: { id: data.organizationId },
-  });
-  if (!org) throw new NotFoundError('Organization not found');
 
   // Hash da senha
   const passwordHash = await bcrypt.hash(data.password, 10);
@@ -303,23 +109,31 @@ export async function createUser(data: {
   // Criar usuário
   const user = await prisma.user.create({
     data: {
-      organizationId: data.organizationId,
       email: data.email,
       passwordHash,
       name: data.name,
       role: data.role ?? 'user',
       status: data.status ?? 'active',
     },
-    include: { organization: true },
   });
 
-  // Incrementar contador de usuários
-  await prisma.organization.update({
-    where: { id: data.organizationId },
-    data: { currentUsers: { increment: 1 } },
-  });
+  // Criar assinatura se planId foi fornecido
+  if (data.planId) {
+    await prisma.subscription.create({
+      data: {
+        userId: user.id,
+        planId: data.planId,
+        status: 'active',
+        startedAt: new Date(),
+        expiresAt: data.subscriptionExpiresAt,
+      },
+    });
+  }
 
-  return user;
+  return prisma.user.findUnique({
+    where: { id: user.id },
+    include: { subscription: { include: { plan: true } } },
+  });
 }
 
 export async function updateUser(
@@ -347,7 +161,7 @@ export async function updateUser(
   return prisma.user.update({
     where: { id },
     data: updateData,
-    include: { organization: true },
+    include: { subscription: { include: { plan: true } } },
   });
 }
 
@@ -356,15 +170,6 @@ export async function deleteUser(id: string) {
   if (!user) throw new NotFoundError('User not found');
 
   await prisma.user.delete({ where: { id } });
-
-  // Decrementar contador de usuários se tiver organizationId
-  if (user.organizationId) {
-    await prisma.organization.update({
-      where: { id: user.organizationId },
-      data: { currentUsers: { decrement: 1 } },
-    });
-  }
-
   return { ok: true };
 }
 
@@ -381,11 +186,30 @@ export async function listPlans() {
   return prisma.plan.findMany({
     include: {
       _count: {
-        select: { organizations: true },
+        select: { subscriptions: true },
       },
     },
     orderBy: { price: 'asc' },
   });
+}
+
+export async function getPlanDetails(id: string) {
+  const plan = await prisma.plan.findUnique({
+    where: { id },
+    include: {
+      subscriptions: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      },
+      _count: { select: { subscriptions: true } },
+    },
+  });
+
+  if (!plan) throw new NotFoundError('Plan not found');
+  return plan;
 }
 
 export async function createPlan(data: {
@@ -395,7 +219,6 @@ export async function createPlan(data: {
   price: number;
   currency?: string;
   interval?: string;
-  maxUsers: number;
   maxSessions: number;
   maxCampaigns: number;
   maxContacts: number;
@@ -424,12 +247,12 @@ export async function updatePlan(id: string, data: Partial<typeof createPlan>) {
 export async function deletePlan(id: string) {
   const plan = await prisma.plan.findUnique({
     where: { id },
-    include: { _count: { select: { organizations: true } } },
+    include: { _count: { select: { subscriptions: true } } },
   });
 
   if (!plan) throw new NotFoundError('Plan not found');
-  if (plan._count.organizations > 0) {
-    throw new ForbiddenError('Cannot delete plan with active organizations');
+  if (plan._count.subscriptions > 0) {
+    throw new ForbiddenError('Cannot delete plan with active subscriptions');
   }
 
   await prisma.plan.delete({ where: { id } });
@@ -439,7 +262,7 @@ export async function deletePlan(id: string) {
 // ─────────── Subscriptions ───────────
 
 export async function listSubscriptions(params?: {
-  organizationId?: string;
+  userId?: string;
   status?: string;
   page?: number;
   pageSize?: number;
@@ -449,14 +272,14 @@ export async function listSubscriptions(params?: {
   const skip = (page - 1) * pageSize;
 
   const where: any = {};
-  if (params?.organizationId) where.organizationId = params.organizationId;
+  if (params?.userId) where.userId = params.userId;
   if (params?.status) where.status = params.status;
 
   const [items, total] = await Promise.all([
     prisma.subscription.findMany({
       where,
       include: {
-        organization: { select: { id: true, name: true, slug: true } },
+        user: { select: { id: true, name: true, email: true } },
         plan: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -470,7 +293,7 @@ export async function listSubscriptions(params?: {
 }
 
 export async function createSubscription(data: {
-  organizationId: string;
+  userId: string;
   planId: string;
   status: string;
   startedAt: Date;
@@ -479,9 +302,34 @@ export async function createSubscription(data: {
   paymentStatus?: string;
   amount?: number;
 }) {
+  // Verificar se usuário já tem assinatura
+  const existing = await prisma.subscription.findUnique({
+    where: { userId: data.userId },
+  });
+  if (existing) throw new ForbiddenError('User already has a subscription');
+
   return prisma.subscription.create({
     data: data as any,
-    include: { organization: true, plan: true },
+    include: { user: true, plan: true },
+  });
+}
+
+export async function updateSubscription(
+  id: string,
+  data: Partial<{
+    planId: string;
+    status: string;
+    expiresAt: Date;
+    cancelledAt: Date;
+    paymentMethod: string;
+    paymentStatus: string;
+    amount: number;
+  }>
+) {
+  return prisma.subscription.update({
+    where: { id },
+    data: data as any,
+    include: { user: true, plan: true },
   });
 }
 
@@ -489,53 +337,53 @@ export async function createSubscription(data: {
 
 export async function getGlobalStats() {
   const [
-    totalOrgs,
-    activeOrgs,
-    trialOrgs,
-    suspendedOrgs,
     totalUsers,
+    activeUsers,
+    suspendedUsers,
     totalSessions,
     activeSessions,
     totalCampaigns,
     runningCampaigns,
+    activeSubscriptions,
+    expiredSubscriptions,
   ] = await Promise.all([
-    prisma.organization.count(),
-    prisma.organization.count({ where: { status: 'active' } }),
-    prisma.organization.count({ where: { status: 'trial' } }),
-    prisma.organization.count({ where: { status: 'suspended' } }),
     prisma.user.count(),
+    prisma.user.count({ where: { status: 'active' } }),
+    prisma.user.count({ where: { status: 'suspended' } }),
     prisma.session.count(),
     prisma.session.count({ where: { status: 'connected' } }),
     prisma.campaign.count(),
     prisma.campaign.count({ where: { status: 'running' } }),
+    prisma.subscription.count({ where: { status: 'active' } }),
+    prisma.subscription.count({ where: { status: 'expired' } }),
   ]);
 
   // Receita mensal (soma dos planos ativos)
-  const orgsWithPlans = await prisma.organization.findMany({
+  const subscriptions = await prisma.subscription.findMany({
     where: { status: 'active' },
     include: { plan: true },
   });
-  const mrr = orgsWithPlans.reduce((sum, org) => sum + Number(org.plan.price), 0);
+  const mrr = subscriptions.reduce((sum, sub) => sum + Number(sub.plan.price), 0);
 
   // Crescimento (últimos 30 dias)
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const newOrgsLast30Days = await prisma.organization.count({
+  const newUsersLast30Days = await prisma.user.count({
     where: { createdAt: { gte: thirtyDaysAgo } },
   });
 
   return {
-    totalOrgs,
-    activeOrgs,
-    trialOrgs,
-    suspendedOrgs,
     totalUsers,
+    activeUsers,
+    suspendedUsers,
     totalSessions,
     activeSessions,
     totalCampaigns,
     runningCampaigns,
     mrr,
-    newOrgsLast30Days,
+    newUsersLast30Days,
+    activeSubscriptions,
+    expiredSubscriptions,
   };
 }
 
@@ -572,7 +420,6 @@ export async function getUsageStats(params?: { days?: number }) {
 }
 
 export async function getActivityLogs(params?: {
-  organizationId?: string;
   userId?: string;
   action?: string;
   module?: string;
@@ -584,7 +431,6 @@ export async function getActivityLogs(params?: {
   const skip = (page - 1) * pageSize;
 
   const where: any = {};
-  if (params?.organizationId) where.organizationId = params.organizationId;
   if (params?.userId) where.userId = params.userId;
   if (params?.action) where.action = params.action;
   if (params?.module) where.module = params.module;
@@ -594,7 +440,6 @@ export async function getActivityLogs(params?: {
       where,
       include: {
         user: { select: { name: true, email: true } },
-        organization: { select: { name: true, slug: true } },
       },
       orderBy: { timestamp: 'desc' },
       skip,
@@ -609,7 +454,7 @@ export async function getActivityLogs(params?: {
 // ─────────── Sessions (Admin View) ───────────
 
 export async function getAllSessions(params?: {
-  organizationId?: string;
+  userId?: string;
   status?: string;
   page?: number;
   pageSize?: number;
@@ -619,9 +464,7 @@ export async function getAllSessions(params?: {
   const skip = (page - 1) * pageSize;
 
   const where: any = {};
-  if (params?.organizationId) {
-    where.user = { organizationId: params.organizationId };
-  }
+  if (params?.userId) where.userId = params.userId;
   if (params?.status) where.status = params.status;
 
   const [items, total] = await Promise.all([
@@ -633,7 +476,11 @@ export async function getAllSessions(params?: {
             id: true,
             name: true,
             email: true,
-            organization: { select: { id: true, name: true, slug: true } },
+            subscription: {
+              include: {
+                plan: { select: { id: true, name: true, slug: true } },
+              },
+            },
           },
         },
         groups: {

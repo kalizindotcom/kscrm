@@ -11,7 +11,7 @@ interface LogActivityParams {
 
 /**
  * Registra uma atividade no log.
- * Captura automaticamente IP, user agent, organizationId e userId do request.
+ * Captura automaticamente IP, user agent e userId do request.
  */
 export async function logActivity({
   req,
@@ -22,16 +22,9 @@ export async function logActivity({
 }: LogActivityParams): Promise<void> {
   try {
     const user = req.user;
-    const org = req.organization;
 
-    // Se não tiver organização, tentar pegar do usuário
-    let organizationId = org?.id;
-    if (!organizationId && user?.organizationId) {
-      organizationId = user.organizationId;
-    }
-
-    // Se ainda não tiver, não logar (pode ser endpoint público)
-    if (!organizationId) return;
+    // Se não tiver usuário, não logar (pode ser endpoint público)
+    if (!user?.sub) return;
 
     const ipAddress =
       (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -41,8 +34,7 @@ export async function logActivity({
 
     await prisma.activityLog.create({
       data: {
-        organizationId,
-        userId: user?.sub,
+        userId: user.sub,
         action,
         module,
         resource,
@@ -76,24 +68,16 @@ export async function logLogin(req: FastifyRequest, userId: string, email: strin
   });
 
   // Logar atividade
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { organizationId: true },
+  await prisma.activityLog.create({
+    data: {
+      userId,
+      action: 'login',
+      module: 'auth',
+      details: { email } as any,
+      ipAddress,
+      userAgent: req.headers['user-agent'] || 'unknown',
+    },
   });
-
-  if (user?.organizationId) {
-    await prisma.activityLog.create({
-      data: {
-        organizationId: user.organizationId,
-        userId,
-        action: 'login',
-        module: 'auth',
-        details: { email } as any,
-        ipAddress,
-        userAgent: req.headers['user-agent'] || 'unknown',
-      },
-    });
-  }
 }
 
 /**

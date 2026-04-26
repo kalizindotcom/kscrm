@@ -1,5 +1,5 @@
 // Prisma schema — KS CSM
-// Reflete os tipos do frontend em src/types/index.ts e src/components/connectors/types.ts
+// Sistema baseado em usuários com planos individuais
 
 generator client {
   provider = "prisma-client-js"
@@ -10,45 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────── Organizations (Multi-Tenant) ───────────
-model Organization {
-  id              String    @id @default(cuid())
-  name            String
-  slug            String    @unique
-  domain          String?   @unique
-  logo            String?
-
-  // Billing
-  planId          String
-  plan            Plan      @relation(fields: [planId], references: [id])
-  planStartedAt   DateTime  @default(now())
-  planExpiresAt   DateTime?
-  billingEmail    String
-
-  // Status
-  status          String    @default("active") // active | suspended | cancelled | trial
-  trialEndsAt     DateTime?
-
-  // Limites atuais (cache do plano)
-  maxUsers        Int       @default(1)
-  maxSessions     Int       @default(1)
-  maxCampaigns    Int       @default(10)
-  maxContacts     Int       @default(1000)
-  maxMessagesDay  Int       @default(500)
-
-  // Uso atual
-  currentUsers    Int       @default(0)
-  currentSessions Int       @default(0)
-
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  users           User[]
-  subscriptions   Subscription[]
-  usageLogs       UsageLog[]
-  activityLogs    ActivityLog[]
-}
-
+// ─────────── Plans ───────────
 model Plan {
   id              String    @id @default(cuid())
   name            String
@@ -60,8 +22,7 @@ model Plan {
   currency        String    @default("BRL")
   interval        String    @default("monthly") // monthly | yearly | lifetime
 
-  // Limites
-  maxUsers        Int       @default(1)
+  // Limites por usuário
   maxSessions     Int       @default(1)
   maxCampaigns    Int       @default(10)
   maxContacts     Int       @default(1000)
@@ -78,14 +39,13 @@ model Plan {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  organizations   Organization[]
   subscriptions   Subscription[]
 }
 
 model Subscription {
   id              String    @id @default(cuid())
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   planId          String
   plan            Plan      @relation(fields: [planId], references: [id])
 
@@ -102,14 +62,12 @@ model Subscription {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@index([organizationId, status])
+  @@index([userId, status])
 }
 
 // ─────────── Users / Auth ───────────
 model User {
   id              String    @id @default(cuid())
-  organizationId  String?   // Temporariamente opcional para permitir migration
-  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   email           String    @unique
   passwordHash    String
@@ -128,6 +86,7 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  subscription    Subscription?
   sessions        Session[]
   campaigns       Campaign[]
   refreshTokens   RefreshToken[]
@@ -136,8 +95,8 @@ model User {
   imports         ContactImport[]
   warmupPlans     WarmupPlan[]
   activityLogs    ActivityLog[]
+  usageLogs       UsageLog[]
 
-  @@index([organizationId])
   @@index([email])
 }
 
@@ -500,8 +459,6 @@ model WarmupLog {
 // ─────────── Audit ───────────
 model ActivityLog {
   id              String    @id @default(cuid())
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId          String?
   user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -515,15 +472,14 @@ model ActivityLog {
 
   timestamp       DateTime  @default(now())
 
-  @@index([organizationId, timestamp])
   @@index([userId, timestamp])
   @@index([action, timestamp])
 }
 
 model UsageLog {
   id              String    @id @default(cuid())
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   date            DateTime  @db.Date
 
@@ -536,8 +492,8 @@ model UsageLog {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@unique([organizationId, date])
-  @@index([organizationId, date])
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 model AuditLog {

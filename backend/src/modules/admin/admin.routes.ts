@@ -20,24 +20,14 @@ const paginationSchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
-const organizationCreateSchema = z.object({
-  name: z.string().min(1).max(120),
-  slug: z.string().min(1).max(60).regex(/^[a-z0-9-]+$/),
-  planId: z.string(),
-  billingEmail: z.string().email(),
-  status: z.enum(['active', 'trial', 'suspended', 'cancelled']).optional(),
-  trialEndsAt: z.string().datetime().optional(),
-});
-
-const organizationUpdateSchema = organizationCreateSchema.partial();
-
 const userCreateSchema = z.object({
-  organizationId: z.string(),
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(1),
   role: z.enum(['super_admin', 'admin', 'user', 'viewer']).optional(),
   status: z.enum(['active', 'suspended', 'invited']).optional(),
+  planId: z.string().optional(),
+  subscriptionExpiresAt: z.string().datetime().optional(),
 });
 
 const userUpdateSchema = z.object({
@@ -56,7 +46,6 @@ const planCreateSchema = z.object({
   price: z.number().min(0),
   currency: z.string().default('BRL'),
   interval: z.enum(['monthly', 'yearly', 'lifetime']).default('monthly'),
-  maxUsers: z.number().int().min(1),
   maxSessions: z.number().int().min(1),
   maxCampaigns: z.number().int().min(1),
   maxContacts: z.number().int().min(1),
@@ -70,11 +59,21 @@ const planCreateSchema = z.object({
 const planUpdateSchema = planCreateSchema.partial();
 
 const subscriptionCreateSchema = z.object({
-  organizationId: z.string(),
+  userId: z.string(),
   planId: z.string(),
   status: z.enum(['active', 'cancelled', 'expired', 'pending']),
   startedAt: z.string().datetime(),
   expiresAt: z.string().datetime().optional(),
+  paymentMethod: z.string().optional(),
+  paymentStatus: z.string().optional(),
+  amount: z.number().optional(),
+});
+
+const subscriptionUpdateSchema = z.object({
+  planId: z.string().optional(),
+  status: z.enum(['active', 'cancelled', 'expired', 'pending']).optional(),
+  expiresAt: z.string().datetime().optional(),
+  cancelledAt: z.string().datetime().optional(),
   paymentMethod: z.string().optional(),
   paymentStatus: z.string().optional(),
   amount: z.number().optional(),
@@ -85,65 +84,12 @@ export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
   app.addHook('preHandler', requireSuperAdmin);
 
-  // ─────────── Organizations ───────────
-
-  app.get('/api/admin/organizations', async (req) => {
-    const query = z
-      .object({
-        search: z.string().optional(),
-        status: z.string().optional(),
-        planId: z.string().optional(),
-        ...paginationSchema.shape,
-      })
-      .parse(req.query);
-
-    return service.listOrganizations(query);
-  });
-
-  app.get('/api/admin/organizations/:id', async (req) => {
-    const { id } = req.params as { id: string };
-    return service.getOrganization(id);
-  });
-
-  app.post('/api/admin/organizations', async (req) => {
-    const body = organizationCreateSchema.parse(req.body);
-    return service.createOrganization({
-      ...body,
-      trialEndsAt: body.trialEndsAt ? new Date(body.trialEndsAt) : undefined,
-    });
-  });
-
-  app.put('/api/admin/organizations/:id', async (req) => {
-    const { id } = req.params as { id: string };
-    const body = organizationUpdateSchema.parse(req.body);
-    return service.updateOrganization(id, {
-      ...body,
-      trialEndsAt: body.trialEndsAt ? new Date(body.trialEndsAt) : undefined,
-    } as any);
-  });
-
-  app.delete('/api/admin/organizations/:id', async (req) => {
-    const { id } = req.params as { id: string };
-    return service.deleteOrganization(id);
-  });
-
-  app.post('/api/admin/organizations/:id/suspend', async (req) => {
-    const { id } = req.params as { id: string };
-    return service.suspendOrganization(id);
-  });
-
-  app.post('/api/admin/organizations/:id/activate', async (req) => {
-    const { id } = req.params as { id: string };
-    return service.activateOrganization(id);
-  });
-
   // ─────────── Users ───────────
 
   app.get('/api/admin/users', async (req) => {
     const query = z
       .object({
         search: z.string().optional(),
-        organizationId: z.string().optional(),
         role: z.string().optional(),
         status: z.string().optional(),
         ...paginationSchema.shape,
@@ -160,7 +106,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post('/api/admin/users', async (req) => {
     const body = userCreateSchema.parse(req.body);
-    return service.createUser(body);
+    return service.createUser({
+      ...body,
+      subscriptionExpiresAt: body.subscriptionExpiresAt ? new Date(body.subscriptionExpiresAt) : undefined,
+    });
   });
 
   app.put('/api/admin/users/:id', async (req) => {
@@ -179,16 +128,15 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.suspendUser(id);
   });
 
-  app.get('/api/admin/users/:id/activity', async (req) => {
-    const { id } = req.params as { id: string };
-    const query = paginationSchema.parse(req.query);
-    return service.getActivityLogs({ userId: id, ...query });
-  });
-
   // ─────────── Plans ───────────
 
   app.get('/api/admin/plans', async () => {
     return service.listPlans();
+  });
+
+  app.get('/api/admin/plans/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    return service.getPlanDetails(id);
   });
 
   app.post('/api/admin/plans', async (req) => {
@@ -212,7 +160,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/subscriptions', async (req) => {
     const query = z
       .object({
-        organizationId: z.string().optional(),
+        userId: z.string().optional(),
         status: z.string().optional(),
         ...paginationSchema.shape,
       })
@@ -230,6 +178,16 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  app.put('/api/admin/subscriptions/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const body = subscriptionUpdateSchema.parse(req.body);
+    return service.updateSubscription(id, {
+      ...body,
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
+      cancelledAt: body.cancelledAt ? new Date(body.cancelledAt) : undefined,
+    } as any);
+  });
+
   // ─────────── Analytics ───────────
 
   app.get('/api/admin/stats', async () => {
@@ -237,14 +195,18 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/admin/usage', async (req) => {
-    const query = z.object({ days: z.coerce.number().min(1).max(365).default(30) }).parse(req.query);
+    const query = z
+      .object({
+        days: z.coerce.number().min(1).max(365).default(30),
+      })
+      .parse(req.query);
+
     return service.getUsageStats(query);
   });
 
   app.get('/api/admin/activity', async (req) => {
     const query = z
       .object({
-        organizationId: z.string().optional(),
         userId: z.string().optional(),
         action: z.string().optional(),
         module: z.string().optional(),
@@ -255,12 +217,12 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.getActivityLogs(query);
   });
 
-  // ─────────── Sessions (Admin View) ───────────
+  // ─────────── Sessions ───────────
 
   app.get('/api/admin/sessions', async (req) => {
     const query = z
       .object({
-        organizationId: z.string().optional(),
+        userId: z.string().optional(),
         status: z.string().optional(),
         ...paginationSchema.shape,
       })

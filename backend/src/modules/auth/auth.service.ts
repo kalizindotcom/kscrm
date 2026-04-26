@@ -7,7 +7,6 @@ interface TokenPayload {
   sub: string;
   email: string;
   role: string;
-  organizationId?: string;
 }
 
 export async function login(email: string, password: string) {
@@ -26,7 +25,6 @@ export async function login(email: string, password: string) {
     sub: user.id,
     email: user.email,
     role: user.role,
-    organizationId: user.organizationId ?? undefined
   };
   const token = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
@@ -60,7 +58,6 @@ export async function refresh(refreshToken: string) {
     sub: payload.sub,
     email: payload.email,
     role: payload.role,
-    organizationId: payload.organizationId || undefined
   });
   return { token: newToken };
 }
@@ -77,4 +74,3 @@ export async function me(userId: string) {
   if (!user) throw new UnauthorizedError('Usuário não encontrado');
   return { id: user.id, email: user.email, name: user.name, role: user.role, avatar: user.avatar };
 }
-

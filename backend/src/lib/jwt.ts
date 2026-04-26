@@ -5,7 +5,6 @@ export interface TokenPayload {
   sub: string;
   email: string;
   role: string;
-  organizationId?: string; // Opcional para compatibilidade com tokens antigos
 }
 
 export function signAccessToken(payload: TokenPayload): string {

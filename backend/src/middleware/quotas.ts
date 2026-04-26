@@ -2,20 +2,19 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '../db/client.js';
 import { ForbiddenError } from '../lib/errors.js';
 
-type QuotaResource = 'sessions' | 'campaigns' | 'contacts' | 'messages' | 'users';
+type QuotaResource = 'sessions' | 'campaigns' | 'contacts' | 'messages';
 
 /**
- * Middleware que verifica se a organização atingiu o limite de um recurso.
- * Deve ser usado APÓS requireTenant.
+ * Middleware que verifica se o usuário atingiu o limite de um recurso.
+ * Deve ser usado APÓS requireSubscription.
  */
 export function checkQuota(resource: QuotaResource) {
   return async (req: FastifyRequest, _reply: FastifyReply) => {
-    const org = req.organization;
     const plan = req.plan;
     const user = req.user;
 
-    if (!org || !plan) {
-      throw new Error('requireTenant must be called before checkQuota');
+    if (!plan) {
+      throw new Error('requireSubscription must be called before checkQuota');
     }
 
     // Super admin não tem limites
@@ -23,9 +22,14 @@ export function checkQuota(resource: QuotaResource) {
       return;
     }
 
+    const userId = user!.sub;
+
     switch (resource) {
       case 'sessions': {
-        if (org.currentSessions >= plan.maxSessions) {
+        const count = await prisma.session.count({
+          where: { userId },
+        });
+        if (count >= plan.maxSessions) {
           throw new ForbiddenError(
             `Limite de sessões atingido (${plan.maxSessions}). Faça upgrade do seu plano.`
           );
@@ -35,9 +39,7 @@ export function checkQuota(resource: QuotaResource) {
 
       case 'campaigns': {
         const count = await prisma.campaign.count({
-          where: {
-            user: { organizationId: org.id },
-          },
+          where: { userId },
         });
         if (count >= plan.maxCampaigns) {
           throw new ForbiddenError(
@@ -49,9 +51,7 @@ export function checkQuota(resource: QuotaResource) {
 
       case 'contacts': {
         const count = await prisma.contact.count({
-          where: {
-            user: { organizationId: org.id },
-          },
+          where: { userId },
         });
         if (count >= plan.maxContacts) {
           throw new ForbiddenError(
@@ -68,8 +68,8 @@ export function checkQuota(resource: QuotaResource) {
 
         const usageLog = await prisma.usageLog.findUnique({
           where: {
-            organizationId_date: {
-              organizationId: org.id,
+            userId_date: {
+              userId,
               date: today,
             },
           },
@@ -79,15 +79,6 @@ export function checkQuota(resource: QuotaResource) {
         if (messagesSentToday >= plan.maxMessagesDay) {
           throw new ForbiddenError(
             `Limite diário de mensagens atingido (${plan.maxMessagesDay}). Tente novamente amanhã ou faça upgrade.`
-          );
-        }
-        break;
-      }
-
-      case 'users': {
-        if (org.currentUsers >= plan.maxUsers) {
-          throw new ForbiddenError(
-            `Limite de usuários atingido (${plan.maxUsers}). Faça upgrade do seu plano.`
           );
         }
         break;
@@ -104,7 +95,7 @@ export function checkQuota(resource: QuotaResource) {
  * Deve ser chamado APÓS a ação ser executada com sucesso.
  */
 export async function incrementUsage(
-  organizationId: string,
+  userId: string,
   resource: 'messages' | 'campaigns' | 'sessions'
 ) {
   const today = new Date();
@@ -114,13 +105,13 @@ export async function incrementUsage(
     case 'messages':
       await prisma.usageLog.upsert({
         where: {
-          organizationId_date: {
-            organizationId,
+          userId_date: {
+            userId,
             date: today,
           },
         },
         create: {
-          organizationId,
+          userId,
           date: today,
           messagesSent: 1,
         },
@@ -133,13 +124,13 @@ export async function incrementUsage(
     case 'campaigns':
       await prisma.usageLog.upsert({
         where: {
-          organizationId_date: {
-            organizationId,
+          userId_date: {
+            userId,
             date: today,
           },
         },
         create: {
-          organizationId,
+          userId,
           date: today,
           campaignsFired: 1,
         },
@@ -150,34 +141,21 @@ export async function incrementUsage(
       break;
 
     case 'sessions':
-      await prisma.organization.update({
-        where: { id: organizationId },
-        data: { currentSessions: { increment: 1 } },
-      });
-      break;
-  }
-}
-
-/**
- * Decrementa o contador de uso de um recurso.
- * Usado quando um recurso é removido (ex: sessão deletada).
- */
-export async function decrementUsage(
-  organizationId: string,
-  resource: 'sessions' | 'users'
-) {
-  switch (resource) {
-    case 'sessions':
-      await prisma.organization.update({
-        where: { id: organizationId },
-        data: { currentSessions: { decrement: 1 } },
-      });
-      break;
-
-    case 'users':
-      await prisma.organization.update({
-        where: { id: organizationId },
-        data: { currentUsers: { decrement: 1 } },
+      await prisma.usageLog.upsert({
+        where: {
+          userId_date: {
+            userId,
+            date: today,
+          },
+        },
+        create: {
+          userId,
+          date: today,
+          sessionsActive: 1,
+        },
+        update: {
+          sessionsActive: { increment: 1 },
+        },
       });
       break;
   }
