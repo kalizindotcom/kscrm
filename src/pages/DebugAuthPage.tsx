@@ -3,10 +3,17 @@ import { useAuthStore } from '../store';
 import { apiClient } from '../services/apiClient';
 
 export function DebugAuthPage() {
-  const { user, token } = useAuthStore();
+  const { user, token, logout } = useAuthStore();
   const [adminCheck, setAdminCheck] = useState<any>(null);
   const [tokenCheck, setTokenCheck] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const handleForceRelogin = async () => {
+    if (confirm('Isso vai fazer logout e você precisará fazer login novamente. Continuar?')) {
+      await logout();
+      window.location.href = '/login';
+    }
+  };
 
   useEffect(() => {
     async function checkAuth() {
@@ -88,6 +95,26 @@ export function DebugAuthPage() {
           </div>
         )}
       </div>
+
+      {/* Solução */}
+      {tokenCheck?.roleCheck && !tokenCheck.roleCheck.isSuperAdmin && adminCheck?.roleCheck?.isSuperAdmin && (
+        <div className="mb-6 p-4 bg-yellow-100 dark:bg-yellow-900 rounded border-2 border-yellow-500">
+          <h2 className="text-xl font-semibold mb-2">⚠️ Problema Identificado</h2>
+          <p className="mb-3">
+            O usuário no banco tem role <strong>super_admin</strong>, mas o token atual tem role{' '}
+            <strong>{tokenCheck.roleCheck.currentRole}</strong>.
+          </p>
+          <p className="mb-3">
+            Isso acontece quando você fez login antes de corrigirmos o role no banco.
+          </p>
+          <button
+            onClick={handleForceRelogin}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
+          >
+            🔄 Fazer Logout e Login Novamente
+          </button>
+        </div>
+      )}
 
       {/* Diagnóstico */}
       <div className="p-4 bg-blue-100 dark:bg-blue-900 rounded">
