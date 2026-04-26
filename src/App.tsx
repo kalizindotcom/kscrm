@@ -23,6 +23,7 @@ import { OrganizationsPage } from './pages/admin/OrganizationsPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { PlansPage } from './pages/admin/PlansPage';
 import { ActivityLogsPage } from './pages/admin/ActivityLogsPage';
+import { DebugAuthPage } from './pages/DebugAuthPage';
 
 const queryClient = new QueryClient();
 
@@ -75,6 +76,9 @@ const App = () => (
               <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
               <Route path="/admin/plans" element={<AdminRoute><PlansPage /></AdminRoute>} />
               <Route path="/admin/activity" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
+
+              {/* Debug Route - Temporário */}
+              <Route path="/debug-auth" element={<PrivateRoute><DebugAuthPage /></PrivateRoute>} />
 
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
