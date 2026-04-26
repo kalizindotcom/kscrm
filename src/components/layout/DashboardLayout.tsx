@@ -222,7 +222,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             })}
 
             {/* Admin Section - Only for super_admin */}
-            {user?.role === 'super_admin' && (
+            {(() => {
+              console.log('[DEBUG] User role:', user?.role, 'Type:', typeof user?.role);
+              return user?.role === 'super_admin';
+            })() && (
               <>
                 <div className="my-4 border-t border-primary/20" />
                 <div className={cn("px-3 mb-2", !sidebarOpen && "lg:hidden")}>
