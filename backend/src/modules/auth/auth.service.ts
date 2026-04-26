@@ -26,7 +26,7 @@ export async function login(email: string, password: string) {
     sub: user.id,
     email: user.email,
     role: user.role,
-    organizationId: user.organizationId
+    organizationId: user.organizationId || undefined
   };
   const token = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
@@ -60,7 +60,7 @@ export async function refresh(refreshToken: string) {
     sub: payload.sub,
     email: payload.email,
     role: payload.role,
-    organizationId: payload.organizationId
+    organizationId: payload.organizationId || undefined
   });
   return { token: newToken };
 }
