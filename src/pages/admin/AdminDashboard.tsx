@@ -6,16 +6,19 @@ import {
   DollarSign,
   TrendingUp,
   Activity,
-  AlertCircle,
   CheckCircle2,
   Clock,
   XCircle,
   ArrowRight,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/shared';
 import { adminService } from '../../services/adminService';
 import type { GlobalStats } from '../../types/admin';
 import { toast } from 'sonner';
+import { StatCard } from '../../components/admin/StatCard';
+import { AnimatedCard } from '../../components/admin/AnimatedCard';
+import { AnimatedChart } from '../../components/admin/AnimatedChart';
+import { CardSkeleton } from '../../components/admin/SkeletonLoader';
+import { CardHeader, CardTitle, CardContent } from '../../components/ui/shared';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -39,13 +42,48 @@ export const AdminDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Painel Administrativo</h1>
+          <p className="text-muted-foreground mt-1">
+            Visão geral do sistema e métricas principais
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
 
   if (!stats) return null;
+
+  // Dados para gráficos (mock - você pode buscar do backend depois)
+  const growthData = [
+    { name: 'Jan', value: stats.totalOrgs - 30 },
+    { name: 'Fev', value: stats.totalOrgs - 25 },
+    { name: 'Mar', value: stats.totalOrgs - 20 },
+    { name: 'Abr', value: stats.totalOrgs - 15 },
+    { name: 'Mai', value: stats.totalOrgs - 10 },
+    { name: 'Jun', value: stats.totalOrgs },
+  ];
+
+  const mrrData = [
+    { name: 'Jan', value: stats.mrr * 0.7 },
+    { name: 'Fev', value: stats.mrr * 0.75 },
+    { name: 'Mar', value: stats.mrr * 0.8 },
+    { name: 'Abr', value: stats.mrr * 0.85 },
+    { name: 'Mai', value: stats.mrr * 0.92 },
+    { name: 'Jun', value: stats.mrr },
+  ];
+
+  const statusData = [
+    { name: 'Ativas', value: stats.activeOrgs },
+    { name: 'Trial', value: stats.trialOrgs },
+    { name: 'Suspensas', value: stats.suspendedOrgs },
+  ];
 
   const statCards = [
     {
@@ -55,12 +93,16 @@ export const AdminDashboard: React.FC = () => {
       icon: Building2,
       color: 'text-blue-500',
       bgColor: 'bg-blue-500/10',
+      trend: {
+        value: stats.newOrgsLast30Days,
+        isPositive: true,
+      },
       onClick: () => navigate('/admin/organizations'),
     },
     {
       title: 'Usuários',
       value: stats.totalUsers,
-      subtitle: `${stats.totalOrgs} organizações`,
+      subtitle: `em ${stats.totalOrgs} organizações`,
       icon: Users,
       color: 'text-green-500',
       bgColor: 'bg-green-500/10',
@@ -73,6 +115,10 @@ export const AdminDashboard: React.FC = () => {
       icon: DollarSign,
       color: 'text-yellow-500',
       bgColor: 'bg-yellow-500/10',
+      trend: {
+        value: 12.5,
+        isPositive: true,
+      },
     },
     {
       title: 'Crescimento',
@@ -81,6 +127,10 @@ export const AdminDashboard: React.FC = () => {
       icon: TrendingUp,
       color: 'text-purple-500',
       bgColor: 'bg-purple-500/10',
+      trend: {
+        value: 8.3,
+        isPositive: true,
+      },
     },
   ];
 
@@ -118,52 +168,80 @@ export const AdminDashboard: React.FC = () => {
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((stat, idx) => (
-          <Card
+          <StatCard
             key={idx}
-            className={`cursor-pointer hover:shadow-lg transition-shadow ${
-              stat.onClick ? 'hover:border-primary' : ''
-            }`}
+            title={stat.title}
+            value={stat.value}
+            subtitle={stat.subtitle}
+            icon={stat.icon}
+            color={stat.color}
+            bgColor={stat.bgColor}
+            trend={stat.trend}
+            delay={idx * 0.1}
             onClick={stat.onClick}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.title}</p>
-                  <h3 className="text-2xl font-bold mt-1">{stat.value}</h3>
-                  <p className="text-xs text-muted-foreground mt-1">{stat.subtitle}</p>
-                </div>
-                <div className={`p-3 rounded-xl ${stat.bgColor}`}>
-                  <stat.icon className={`w-6 h-6 ${stat.color}`} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          />
         ))}
       </div>
 
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <AnimatedChart
+          title="Crescimento de Organizações"
+          data={growthData}
+          type="area"
+          dataKey="value"
+          xAxisKey="name"
+          color="#3b82f6"
+          delay={0.5}
+        />
+        <AnimatedChart
+          title="MRR - Receita Mensal Recorrente"
+          data={mrrData}
+          type="line"
+          dataKey="value"
+          xAxisKey="name"
+          color="#10b981"
+          delay={0.6}
+        />
+      </div>
+
       {/* Status Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Status das Organizações</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {statusCards.map((status, idx) => (
-              <div key={idx} className="flex items-center space-x-3 p-4 rounded-lg bg-muted/50">
-                <status.icon className={`w-8 h-8 ${status.color}`} />
-                <div>
-                  <p className="text-sm text-muted-foreground">{status.title}</p>
-                  <p className="text-2xl font-bold">{status.value}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <AnimatedChart
+            title="Distribuição por Status"
+            data={statusData}
+            type="pie"
+            dataKey="value"
+            xAxisKey="name"
+            delay={0.7}
+            height={350}
+          />
+        </div>
+
+        <AnimatedCard delay={0.8}>
+          <CardHeader>
+            <CardTitle>Status das Organizações</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {statusCards.map((status, idx) => (
+                <div key={idx} className="flex items-center space-x-3 p-4 rounded-lg bg-muted/50">
+                  <status.icon className={`w-8 h-8 ${status.color}`} />
+                  <div>
+                    <p className="text-sm text-muted-foreground">{status.title}</p>
+                    <p className="text-2xl font-bold">{status.value}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
 
       {/* Sessions & Campaigns */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
+        <AnimatedCard delay={0.9}>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Sessões</span>
@@ -191,9 +269,9 @@ export const AdminDashboard: React.FC = () => {
               </button>
             </div>
           </CardContent>
-        </Card>
+        </AnimatedCard>
 
-        <Card>
+        <AnimatedCard delay={1.0}>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Campanhas</span>
@@ -221,11 +299,11 @@ export const AdminDashboard: React.FC = () => {
               </button>
             </div>
           </CardContent>
-        </Card>
+        </AnimatedCard>
       </div>
 
       {/* Quick Actions */}
-      <Card>
+      <AnimatedCard delay={1.1}>
         <CardHeader>
           <CardTitle>Ações Rápidas</CardTitle>
         </CardHeader>
@@ -259,7 +337,7 @@ export const AdminDashboard: React.FC = () => {
             </button>
           </div>
         </CardContent>
-      </Card>
+      </AnimatedCard>
     </div>
   );
 };

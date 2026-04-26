@@ -210,10 +210,14 @@ export const UsersPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-4">
-                          <div>
-                            <p className="font-medium">{user.organization.name}</p>
-                            <p className="text-sm text-muted-foreground">@{user.organization.slug}</p>
-                          </div>
+                          {user.organization ? (
+                            <div>
+                              <p className="font-medium">{user.organization.name}</p>
+                              <p className="text-sm text-muted-foreground">@{user.organization.slug}</p>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Sistema</span>
+                          )}
                         </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">

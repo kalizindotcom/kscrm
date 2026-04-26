@@ -184,12 +184,16 @@ export const OrganizationsPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div>
-                          <p className="font-medium">{org.plan.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            R$ {Number(org.plan.price).toFixed(2)}/{org.plan.interval === 'monthly' ? 'mês' : 'ano'}
-                          </p>
-                        </div>
+                        {org.plan ? (
+                          <div>
+                            <p className="font-medium">{org.plan.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              R$ {Number(org.plan.price).toFixed(2)}/{org.plan.interval === 'monthly' ? 'mês' : 'ano'}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Sem plano</span>
+                        )}
                       </td>
                       <td className="p-4">
                         <Badge variant={statusMap[org.status]?.variant}>
