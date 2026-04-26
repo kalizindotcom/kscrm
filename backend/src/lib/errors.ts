@@ -31,3 +31,9 @@ export class RateLimitError extends AppError {
     super(message, 429, 'RATE_LIMIT');
   }
 }
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super(message, 403, 'FORBIDDEN');
+  }
+}
