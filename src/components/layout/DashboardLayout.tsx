@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Send, 
-  Users as UsersIcon, 
-  Link as LinkIcon, 
-  BarChart3, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Users,
+  Send,
+  Users as UsersIcon,
+  Link as LinkIcon,
+  BarChart3,
+  Settings,
   Menu,
   X,
   Bell,
@@ -25,7 +25,8 @@ import {
   Rocket,
   PlusCircle,
   Import,
-  Flame
+  Flame,
+  Shield
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../../store';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -52,6 +53,15 @@ const menuItems = [
   { icon: Flame, label: 'Aquecimento', path: '/warmup' },
   { icon: BarChart3, label: 'Relatórios', path: '/reports' },
   { icon: Settings, label: 'Configurações', path: '/settings' },
+];
+
+const adminMenuItems = [
+  { icon: Shield, label: 'Admin', path: '/admin' },
+  { icon: LayoutDashboard, label: 'Dashboard Admin', path: '/admin' },
+  { icon: Users, label: 'Organizações', path: '/admin/organizations' },
+  { icon: UsersIcon, label: 'Usuários', path: '/admin/users' },
+  { icon: CreditCard, label: 'Planos', path: '/admin/plans' },
+  { icon: Activity, label: 'Logs', path: '/admin/activity' },
 ];
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -211,6 +221,50 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 </Link>
               );
             })}
+
+            {/* Admin Section - Only for super_admin */}
+            {user?.role === 'super_admin' && (
+              <>
+                <div className="my-4 border-t border-primary/20" />
+                <div className={cn("px-3 mb-2", !sidebarOpen && "lg:hidden")}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Administração
+                  </p>
+                </div>
+                {adminMenuItems.slice(1).map((item) => {
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative",
+                        isActive
+                          ? "bg-red-500/10 text-red-500 shadow-[0_0_20px_hsla(0,100%,50%,0.05)] border border-red-500/20"
+                          : "hover:bg-red-500/5 text-muted-foreground hover:text-red-500",
+                        !sidebarOpen && "lg:justify-center"
+                      )}
+                      title={!sidebarOpen ? item.label : undefined}
+                    >
+                      <div className="relative flex items-center justify-center w-8 h-8 z-10">
+                        <item.icon className={cn(
+                          "w-5 h-5 flex-shrink-0 z-10 transition-transform duration-300 group-hover:scale-110",
+                          isActive && "text-red-500"
+                        )} />
+                      </div>
+                      <div className="flex items-center flex-1 min-w-0 z-10">
+                        <span className={cn(
+                          "truncate font-medium z-10 relative ml-2 transition-all duration-300",
+                          !sidebarOpen && "lg:hidden"
+                        )}>
+                          {item.label}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </>
+            )}
           </nav>
 
           <div className="p-4 border-t border-primary/20 bg-primary/5">

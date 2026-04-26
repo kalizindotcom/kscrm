@@ -18,6 +18,11 @@ import { SettingsPage } from './pages/SettingsPage';
 import ReportsPage from './pages/ReportsPage';
 import { LiveViewPage } from './pages/LiveViewPage';
 import { WarmupPage } from './pages/WarmupPage';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { OrganizationsPage } from './pages/admin/OrganizationsPage';
+import { UsersPage } from './pages/admin/UsersPage';
+import { PlansPage } from './pages/admin/PlansPage';
+import { ActivityLogsPage } from './pages/admin/ActivityLogsPage';
 
 const queryClient = new QueryClient();
 
@@ -56,6 +61,14 @@ const App = () => (
               <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
               <Route path="/warmup" element={<PrivateRoute><WarmupPage /></PrivateRoute>} />
               <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+
+              {/* Admin Routes */}
+              <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
+              <Route path="/admin/organizations" element={<PrivateRoute><OrganizationsPage /></PrivateRoute>} />
+              <Route path="/admin/users" element={<PrivateRoute><UsersPage /></PrivateRoute>} />
+              <Route path="/admin/plans" element={<PrivateRoute><PlansPage /></PrivateRoute>} />
+              <Route path="/admin/activity" element={<PrivateRoute><ActivityLogsPage /></PrivateRoute>} />
+
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </BrowserRouter>
