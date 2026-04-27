@@ -16,6 +16,9 @@ import {
   Zap,
   MessageSquare,
   Users,
+  Sparkles,
+  Clock,
+  Crown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button, Badge, CardHeader, CardTitle, CardContent } from '@/components/ui/shared';
@@ -142,6 +145,12 @@ export function UserDetailPage() {
                 <Badge variant={statusMap[user.status]?.variant}>
                   {statusMap[user.status]?.label}
                 </Badge>
+                {user.subscription?.status === 'trial' && (
+                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-0 px-3 py-1 text-sm font-bold shadow-lg shadow-orange-500/30">
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    TRIAL
+                  </Badge>
+                )}
               </div>
               <p className="text-muted-foreground mt-1">{user.email}</p>
             </div>
@@ -180,6 +189,60 @@ export function UserDetailPage() {
           </Button>
         </div>
       </motion.div>
+
+      {/* Trial Banner */}
+      {user.subscription?.status === 'trial' && user.subscription?.expiresAt && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+        >
+          <AnimatedCard delay={0.1}>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <motion.div
+                    animate={{
+                      rotate: [0, 10, -10, 10, 0],
+                      scale: [1, 1.1, 1, 1.1, 1]
+                    }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      repeatDelay: 3
+                    }}
+                    className="w-16 h-16 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/30"
+                  >
+                    <Crown className="w-8 h-8 text-white" />
+                  </motion.div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-xl font-bold">Usuário Trial</h3>
+                      <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-0 text-xs px-2 py-0.5 font-bold">
+                        TESTE GRÁTIS
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Este usuário está em período de teste com acesso completo aos recursos premium
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1 justify-end">
+                      <Clock className="w-3 h-3" />
+                      Expira em
+                    </p>
+                    <p className="text-2xl font-bold bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">
+                      {formatDate(user.subscription.expiresAt)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </AnimatedCard>
+        </motion.div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -302,7 +302,15 @@ export const UsersPage: React.FC = () => {
                                 </div>
                               )}
                               <div>
-                                <p className="font-semibold">{user.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-semibold">{user.name}</p>
+                                  {user.subscription?.status === 'trial' && (
+                                    <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-0 text-[10px] px-2 py-0.5 font-bold">
+                                      <Sparkles className="w-3 h-3 mr-1" />
+                                      TRIAL
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-sm text-muted-foreground">{user.email}</p>
                               </div>
                             </div>
