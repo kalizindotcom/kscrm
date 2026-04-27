@@ -27,7 +27,11 @@ const userCreateSchema = z.object({
   role: z.enum(['super_admin', 'admin', 'user', 'viewer']).optional(),
   status: z.enum(['active', 'suspended', 'invited']).optional(),
   planId: z.string().optional(),
-  subscriptionExpiresAt: z.string().datetime().optional(),
+  subscriptionExpiresAt: z.string().optional().transform((val) => {
+    if (!val) return undefined;
+    // Aceita tanto formato de data (YYYY-MM-DD) quanto datetime (ISO)
+    return val.includes('T') ? val : `${val}T23:59:59.999Z`;
+  }),
 });
 
 const userUpdateSchema = z.object({

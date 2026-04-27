@@ -13,7 +13,17 @@ import { adminService } from '@/services/adminService';
 import type { Plan } from '@/types/admin';
 import { AnimatedCard } from '@/components/admin/AnimatedCard';
 
-const userSchema = z.object({
+const createUserSchema = z.object({
+  name: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+  planId: z.string().optional(),
+  subscriptionExpiresAt: z.string().optional(),
+  role: z.enum(['super_admin', 'admin', 'user', 'viewer']),
+  status: z.enum(['active', 'suspended', 'invited']),
+});
+
+const editUserSchema = z.object({
   name: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres').optional().or(z.literal('')),
@@ -23,7 +33,7 @@ const userSchema = z.object({
   status: z.enum(['active', 'suspended', 'invited']),
 });
 
-type UserFormData = z.infer<typeof userSchema>;
+type UserFormData = z.infer<typeof createUserSchema>;
 
 const roleOptions = [
   { value: 'super_admin', label: 'Super Admin', description: 'Acesso total ao sistema', icon: Shield, color: 'text-red-500' },
@@ -48,7 +58,7 @@ export function UserFormPage() {
     setValue,
     watch,
   } = useForm<UserFormData>({
-    resolver: zodResolver(userSchema),
+    resolver: zodResolver(isEdit ? editUserSchema : createUserSchema),
     defaultValues: {
       role: 'user',
       status: 'active',
@@ -100,9 +110,20 @@ export function UserFormPage() {
     try {
       setLoading(true);
       const payload: any = { ...data };
+
+      // Remover senha vazia em edição
       if (isEdit && !payload.password) {
         delete payload.password;
       }
+
+      // Converter data para ISO datetime se fornecida
+      if (payload.subscriptionExpiresAt) {
+        const date = new Date(payload.subscriptionExpiresAt);
+        date.setHours(23, 59, 59, 999);
+        payload.subscriptionExpiresAt = date.toISOString();
+      }
+
+      console.log('[DEBUG] Payload enviado:', payload);
 
       if (isEdit) {
         await adminService.updateUser(id!, payload);
@@ -113,7 +134,9 @@ export function UserFormPage() {
       }
       navigate('/admin/users');
     } catch (err: any) {
-      toast.error(err?.message ?? 'Erro ao salvar usuário');
+      console.error('[ERROR] Erro ao salvar usuário:', err);
+      const errorMessage = err?.response?.data?.message || err?.message || 'Erro ao salvar usuário';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
