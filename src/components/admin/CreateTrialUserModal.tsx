@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/shared';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { TrialUserFormData, TrialPreset } from '@/types/admin';
+import { apiClient } from '@/services/apiClient';
 
 const trialSchema = z.object({
   name: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
@@ -128,17 +129,11 @@ export function CreateTrialUserModal({ isOpen, onClose, onSuccess }: CreateTrial
       expiresAt.setHours(expiresAt.getHours() + data.duration);
 
       // Criar usuário trial via API
-      const response = await fetch('/api/admin/users/trial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          password,
-          expiresAt: expiresAt.toISOString(),
-        }),
+      await apiClient.post('/api/admin/users/trial', {
+        ...data,
+        password,
+        expiresAt: expiresAt.toISOString(),
       });
-
-      if (!response.ok) throw new Error('Erro ao criar usuário trial');
 
       toast.success('Usuário trial criado com sucesso!');
       onSuccess({ email: data.email, password, expiresAt: expiresAt.toISOString() });
