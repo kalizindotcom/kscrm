@@ -61,7 +61,7 @@ const planUpdateSchema = planCreateSchema.partial();
 const subscriptionCreateSchema = z.object({
   userId: z.string(),
   planId: z.string(),
-  status: z.enum(['active', 'cancelled', 'expired', 'pending']),
+  status: z.enum(['active', 'cancelled', 'expired', 'pending', 'trial']),
   startedAt: z.string().datetime(),
   expiresAt: z.string().datetime().optional(),
   paymentMethod: z.string().optional(),
@@ -71,7 +71,7 @@ const subscriptionCreateSchema = z.object({
 
 const subscriptionUpdateSchema = z.object({
   planId: z.string().optional(),
-  status: z.enum(['active', 'cancelled', 'expired', 'pending']).optional(),
+  status: z.enum(['active', 'cancelled', 'expired', 'pending', 'trial']).optional(),
   expiresAt: z.string().datetime().optional(),
   cancelledAt: z.string().datetime().optional(),
   paymentMethod: z.string().optional(),
