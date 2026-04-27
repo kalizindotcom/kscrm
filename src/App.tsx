@@ -18,6 +18,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import ReportsPage from './pages/ReportsPage';
 import { LiveViewPage } from './pages/LiveViewPage';
 import { WarmupPage } from './pages/WarmupPage';
+import { StoriesPage } from './pages/StoriesPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { UsersPage } from './pages/admin/UsersPage';
 import { UserFormPage } from './pages/admin/UserFormPage';
@@ -69,6 +70,7 @@ const App = () => (
               <Route path="/campaigns" element={<PrivateRoute><CampaignsPage /></PrivateRoute>} />
               <Route path="/groups" element={<PrivateRoute><GroupsPage /></PrivateRoute>} />
               <Route path="/live-view" element={<PrivateRoute><LiveViewPage /></PrivateRoute>} />
+              <Route path="/stories" element={<PrivateRoute><StoriesPage /></PrivateRoute>} />
               <Route path="/messages" element={<PrivateRoute><InboxPage /></PrivateRoute>} />
               <Route path="/connectors" element={<PrivateRoute><ConnectorsPage /></PrivateRoute>} />
               <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
