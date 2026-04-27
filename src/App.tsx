@@ -19,6 +19,7 @@ import ReportsPage from './pages/ReportsPage';
 import { LiveViewPage } from './pages/LiveViewPage';
 import { WarmupPage } from './pages/WarmupPage';
 import { StoriesPage } from './pages/StoriesPage';
+import { WhatsAppPage } from './pages/WhatsAppPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { UsersPage } from './pages/admin/UsersPage';
 import { UserFormPage } from './pages/admin/UserFormPage';
@@ -66,6 +67,7 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+              <Route path="/whatsapp" element={<PrivateRoute><WhatsAppPage /></PrivateRoute>} />
               <Route path="/contacts" element={<PrivateRoute><ContactsPage /></PrivateRoute>} />
               <Route path="/campaigns" element={<PrivateRoute><CampaignsPage /></PrivateRoute>} />
               <Route path="/groups" element={<PrivateRoute><GroupsPage /></PrivateRoute>} />

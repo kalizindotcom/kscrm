@@ -47,6 +47,7 @@ import {
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+  { icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' },
   { icon: Send, label: 'Campanhas', path: '/campaigns' },
   { icon: LinkIcon, label: 'Conectores', path: '/connectors' },
   { icon: Flame, label: 'Aquecimento', path: '/warmup' },
@@ -56,7 +57,7 @@ const menuItems = [
 
 const whatsappMenuItems = [
   { icon: Users, label: 'Contatos', path: '/contacts' },
-  { icon: Activity, label: 'Live-View', path: '/live-view' },
+  { icon: Activity, label: 'WhatsApp Web', path: '/live-view' },
   { icon: UsersIcon, label: 'Grupos', path: '/groups' },
   { icon: ImageIcon, label: 'Stories', path: '/stories' },
 ];

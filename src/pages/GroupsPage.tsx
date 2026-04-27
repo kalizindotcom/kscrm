@@ -383,53 +383,54 @@ export const GroupsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {filteredGroups.map((group) => {
           return (
             <Card
               key={group.id}
               onClick={() => handleSync(group)}
               className={cn(
-                'cursor-pointer hover:border-primary/50 transition-all bg-card/40 backdrop-blur-md border-primary/20 overflow-hidden group',
+                'cursor-pointer hover:border-primary/50 hover:scale-[1.02] transition-all bg-card/40 backdrop-blur-md border-primary/20 overflow-hidden group',
                 group.isAdmin && 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]',
               )}
             >
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div
-                      className={cn(
-                        'w-12 h-12 rounded-full overflow-hidden border bg-primary/10 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105',
-                        group.isAdmin
-                          ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                          : 'border-primary/30',
-                      )}
-                    >
-                      {group.photo ? (
-                        <img src={group.photo} alt={group.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <Users className={cn('w-6 h-6', group.isAdmin ? 'text-amber-500' : 'text-primary')} />
+              <CardContent className="p-3">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-12 h-12 rounded-xl overflow-hidden border bg-primary/10 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105',
+                      group.isAdmin
+                        ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                        : 'border-primary/30',
+                    )}
+                  >
+                    {group.photo ? (
+                      <img src={group.photo} alt={group.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Users className={cn('w-6 h-6', group.isAdmin ? 'text-amber-500' : 'text-primary')} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-2 mb-1">
+                      <h3 className="font-bold text-sm truncate flex-1 leading-tight">{group.name}</h3>
+                      {group.isAdmin && (
+                        <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30 text-[8px] h-4 px-1 uppercase font-bold tracking-wider shrink-0">
+                          <Shield className="w-2.5 h-2.5 mr-0.5" /> Admin
+                        </Badge>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-lg truncate">{group.name}</h3>
-                        {group.isAdmin && (
-                          <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30 text-[10px] h-5 px-1.5 uppercase font-bold tracking-wider">
-                            <Shield className="w-3 h-3 mr-1" /> Admin
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3.5 h-3.5" />
-                          {group.memberCount} membros
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          {group.messageCount} mensagens
-                        </span>
-                      </div>
+                    {group.description && (
+                      <p className="text-[10px] text-muted-foreground line-clamp-1 mb-2">{group.description}</p>
+                    )}
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3" />
+                        {group.memberCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {group.messageCount}
+                      </span>
                     </div>
                   </div>
                 </div>

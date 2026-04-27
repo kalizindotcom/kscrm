@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Image as ImageIcon,
   Video,
-  Type,
   Download,
   X,
   ChevronLeft,
@@ -14,10 +13,15 @@ import {
   Clock,
   Eye,
   Loader2,
+  RefreshCw,
+  MessageSquare,
 } from 'lucide-react';
 import { Card, CardContent, Button } from '@/components/ui/shared';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useSessionStore } from '@/store/useSessionStore';
+import { SessionSelector } from '@/components/shared/SessionSelector';
+import { sessionService } from '@/services/sessionService';
 
 interface Story {
   id: string;
@@ -43,8 +47,7 @@ interface Contact {
 }
 
 export function StoriesPage() {
-  const [selectedSession, setSelectedSession] = useState<string>('');
-  const [sessions, setSessions] = useState<any[]>([]);
+  const { sessions, setSessions, selectedSessionId, selectSession } = useSessionStore();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
@@ -52,17 +55,20 @@ export function StoriesPage() {
   const [loading, setLoading] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [progress, setProgress] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Mock data - substituir por chamada real à API
+  const activeSession = sessions.find((s) => s.id === selectedSessionId && s.status === 'connected') ||
+    sessions.find((s) => s.status === 'connected') || null;
+
   useEffect(() => {
     loadSessions();
   }, []);
 
   useEffect(() => {
-    if (selectedSession) {
+    if (activeSession) {
       loadStories();
     }
-  }, [selectedSession]);
+  }, [activeSession?.id]);
 
   // Auto-advance stories
   useEffect(() => {
@@ -82,11 +88,18 @@ export function StoriesPage() {
   }, [selectedContact, currentStoryIndex, isPlaying]);
 
   const loadSessions = async () => {
-    // Mock - substituir por API real
-    setSessions([
-      { id: '1', name: 'Sessão Principal', phoneNumber: '+55 11 99999-9999', status: 'connected' },
-      { id: '2', name: 'Sessão Vendas', phoneNumber: '+55 11 88888-8888', status: 'connected' },
-    ]);
+    try {
+      const sessionList = await sessionService.list();
+      setSessions(sessionList);
+
+      // Auto-select first connected session
+      const connectedSession = sessionList.find((s) => s.status === 'connected');
+      if (connectedSession && !selectedSessionId) {
+        selectSession(connectedSession.id);
+      }
+    } catch (error) {
+      toast.error('Erro ao carregar sessões');
+    }
   };
 
   const loadStories = async () => {
@@ -168,6 +181,13 @@ export function StoriesPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadStories();
+    setIsRefreshing(false);
+    toast.success('Stories atualizados!');
   };
 
   const handleContactClick = (contact: Contact) => {
@@ -257,8 +277,30 @@ export function StoriesPage() {
 
   const currentStory = selectedContact?.stories[currentStoryIndex];
 
+  if (!activeSession) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-8">
+        <div className="max-w-md w-full bg-card/40 backdrop-blur-xl border border-primary/20 rounded-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+            <ImageIcon className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Nenhuma Sessão Conectada</h2>
+          <p className="text-muted-foreground mb-6">
+            Para visualizar stories, você precisa ter uma sessão ativa e conectada.
+          </p>
+          <Button
+            onClick={() => window.location.href = '/connectors'}
+            className="bg-primary hover:bg-primary/90"
+          >
+            Conectar Sessão
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -266,7 +308,7 @@ export function StoriesPage() {
         className="flex items-center justify-between"
       >
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-neon-gradient flex items-center gap-3">
             <ImageIcon className="w-8 h-8 text-primary" />
             Stories
           </h1>
@@ -274,105 +316,98 @@ export function StoriesPage() {
             Visualize e interaja com os stories dos seus contatos
           </p>
         </div>
-      </motion.div>
-
-      {/* Session Selector */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-      >
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-medium">Sessão:</label>
-              <select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg border bg-background"
-              >
-                <option value="">Selecione uma sessão</option>
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name} - {session.phoneNumber}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-3">
+          <SessionSelector
+            sessions={sessions}
+            selectedSessionId={activeSession.id}
+            onSelectSession={selectSession}
+          />
+          <Button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            variant="outline"
+            size="sm"
+            className="bg-primary/10 border-primary/20 hover:bg-primary/20"
+          >
+            <RefreshCw className={cn('w-4 h-4', isRefreshing && 'animate-spin')} />
+          </Button>
+        </div>
       </motion.div>
 
       {/* Stories Grid */}
-      {selectedSession && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card>
-            <CardContent className="p-6">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                </div>
-              ) : contacts.length === 0 ? (
-                <div className="text-center py-12">
-                  <ImageIcon className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Nenhum story disponível</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Não há stories para visualizar no momento
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {contacts.map((contact) => (
-                    <motion.button
-                      key={contact.id}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleContactClick(contact)}
-                      className="relative group"
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <Card className="bg-card/40 backdrop-blur-xl border-primary/20">
+          <CardContent className="p-6">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : contacts.length === 0 ? (
+              <div className="text-center py-12">
+                <ImageIcon className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Nenhum story disponível</h3>
+                <p className="text-sm text-muted-foreground">
+                  Não há stories para visualizar no momento
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {contacts.map((contact, index) => (
+                  <motion.button
+                    key={contact.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleContactClick(contact)}
+                    className="relative group"
+                  >
+                    <div
+                      className={cn(
+                        'w-full aspect-[3/4] rounded-2xl overflow-hidden border-4 transition-all shadow-lg',
+                        contact.hasUnviewed
+                          ? 'border-gradient-to-br from-purple-500 via-pink-500 to-orange-500 shadow-primary/20'
+                          : 'border-gray-600 shadow-gray-900/20'
+                      )}
                     >
-                      <div
-                        className={cn(
-                          'w-full aspect-[3/4] rounded-2xl overflow-hidden border-4 transition-all',
-                          contact.hasUnviewed
-                            ? 'border-gradient-to-br from-purple-500 via-pink-500 to-orange-500'
-                            : 'border-gray-300'
-                        )}
-                      >
-                        {contact.avatar ? (
-                          <img
-                            src={contact.avatar}
-                            alt={contact.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                            <span className="text-4xl font-bold text-primary">
-                              {contact.name[0]}
-                            </span>
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                        <div className="absolute bottom-2 left-2 right-2">
-                          <p className="text-white text-sm font-semibold truncate">
-                            {contact.name}
-                          </p>
-                          <p className="text-white/80 text-xs">
-                            {contact.stories.length} {contact.stories.length === 1 ? 'story' : 'stories'}
-                          </p>
+                      {contact.avatar ? (
+                        <img
+                          src={contact.avatar}
+                          alt={contact.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                          <span className="text-4xl font-bold text-primary">
+                            {contact.name[0]}
+                          </span>
                         </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                      <div className="absolute bottom-2 left-2 right-2">
+                        <p className="text-white text-sm font-semibold truncate drop-shadow-lg">
+                          {contact.name}
+                        </p>
+                        <p className="text-white/80 text-xs drop-shadow-lg">
+                          {contact.stories.length} {contact.stories.length === 1 ? 'story' : 'stories'}
+                        </p>
                       </div>
-                    </motion.button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+                      {contact.hasUnviewed && (
+                        <div className="absolute top-2 right-2 w-3 h-3 bg-primary rounded-full border-2 border-white shadow-lg animate-pulse" />
+                      )}
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Story Viewer Modal */}
       <AnimatePresence>
@@ -408,49 +443,64 @@ export function StoriesPage() {
                   </span>
                 </div>
                 <div>
-                  <p className="text-white font-semibold">{selectedContact.name}</p>
-                  <p className="text-white/80 text-xs flex items-center gap-1">
+                  <p className="text-white font-semibold drop-shadow-lg">{selectedContact.name}</p>
+                  <p className="text-white/80 text-xs flex items-center gap-1 drop-shadow-lg">
                     <Clock className="w-3 h-3" />
                     {formatTimestamp(currentStory.timestamp)}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setIsPlaying(!isPlaying)}
-                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
                 >
                   {isPlaying ? (
                     <Pause className="w-5 h-5 text-white" />
                   ) : (
                     <Play className="w-5 h-5 text-white" />
                   )}
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setSelectedContact(null)}
-                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
                 >
                   <X className="w-5 h-5 text-white" />
-                </button>
+                </motion.button>
               </div>
             </div>
 
             {/* Navigation */}
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
               onClick={handlePrevStory}
-              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-20"
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-20 backdrop-blur-sm"
             >
               <ChevronLeft className="w-6 h-6 text-white" />
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
               onClick={handleNextStory}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-20"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-20 backdrop-blur-sm"
             >
               <ChevronRight className="w-6 h-6 text-white" />
-            </button>
+            </motion.button>
 
             {/* Story Content */}
-            <div className="relative w-full max-w-md h-full max-h-[90vh] flex items-center justify-center">
+            <motion.div
+              key={currentStory.id}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.3 }}
+              className="relative w-full max-w-md h-full max-h-[90vh] flex items-center justify-center"
+            >
               {currentStory.type === 'image' && (
                 <img
                   src={currentStory.mediaUrl}
@@ -484,20 +534,22 @@ export function StoriesPage() {
               <div className="absolute bottom-20 left-4 right-4 flex items-center justify-between text-white">
                 <div className="flex items-center gap-4">
                   {currentStory.views !== undefined && (
-                    <div className="flex items-center gap-1 text-sm">
+                    <div className="flex items-center gap-1 text-sm backdrop-blur-sm bg-black/30 px-3 py-1 rounded-full">
                       <Eye className="w-4 h-4" />
                       {currentStory.views}
                     </div>
                   )}
                 </div>
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => handleDownload(currentStory)}
-                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
                 >
                   <Download className="w-5 h-5" />
-                </button>
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
 
             {/* Reply Input */}
             <div className="absolute bottom-4 left-4 right-4 z-20">
@@ -510,13 +562,15 @@ export function StoriesPage() {
                   placeholder="Responder..."
                   className="flex-1 px-4 py-3 rounded-full bg-white/20 backdrop-blur-xl border border-white/30 text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
                 />
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={handleReply}
                   disabled={!replyText.trim()}
                   className="p-3 rounded-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Send className="w-5 h-5 text-white" />
-                </button>
+                </motion.button>
               </div>
             </div>
           </motion.div>
