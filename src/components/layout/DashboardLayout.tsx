@@ -47,19 +47,15 @@ import {
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' },
+  { icon: Users, label: 'Contatos', path: '/contacts' },
+  { icon: Activity, label: 'WhatsApp Web', path: '/live-view' },
+  { icon: UsersIcon, label: 'Grupos', path: '/groups' },
+  { icon: ImageIcon, label: 'Stories', path: '/stories' },
   { icon: Send, label: 'Campanhas', path: '/campaigns' },
   { icon: LinkIcon, label: 'Conectores', path: '/connectors' },
   { icon: Flame, label: 'Aquecimento', path: '/warmup' },
   { icon: BarChart3, label: 'Relatórios', path: '/reports' },
   { icon: Settings, label: 'Configurações', path: '/settings' },
-];
-
-const whatsappMenuItems = [
-  { icon: Users, label: 'Contatos', path: '/contacts' },
-  { icon: Activity, label: 'WhatsApp Web', path: '/live-view' },
-  { icon: UsersIcon, label: 'Grupos', path: '/groups' },
-  { icon: ImageIcon, label: 'Stories', path: '/stories' },
 ];
 
 const adminMenuItems = [
@@ -78,7 +74,6 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [whatsappMenuOpen, setWhatsappMenuOpen] = useState(false);
 
   const runningWarmupsRef = useRef<Set<string>>(new Set());
 
@@ -228,67 +223,6 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                 </Link>
               );
             })}
-
-            {/* WhatsApp Dropdown Menu */}
-            <div className="my-2">
-              <button
-                onClick={() => setWhatsappMenuOpen(!whatsappMenuOpen)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative w-full",
-                  whatsappMenuOpen || whatsappMenuItems.some(item => location.pathname === item.path)
-                    ? "bg-green-500/10 text-green-500 border border-green-500/20"
-                    : "hover:bg-primary/5 text-muted-foreground hover:text-primary",
-                  !sidebarOpen && "lg:justify-center"
-                )}
-                title={!sidebarOpen ? 'WhatsApp' : undefined}
-              >
-                <div className="relative flex items-center justify-center w-8 h-8 z-10">
-                  <MessageSquare className="w-5 h-5 flex-shrink-0 z-10 transition-transform duration-300 group-hover:scale-110" />
-                </div>
-                <div className="flex items-center flex-1 min-w-0 z-10 justify-between">
-                  <span className={cn(
-                    "truncate font-medium z-10 relative ml-2 transition-all duration-300",
-                    !sidebarOpen && "lg:hidden"
-                  )}>
-                    WhatsApp
-                  </span>
-                  <ChevronRight className={cn(
-                    "w-4 h-4 transition-transform duration-300",
-                    whatsappMenuOpen && "rotate-90",
-                    !sidebarOpen && "lg:hidden"
-                  )} />
-                </div>
-              </button>
-
-              {/* Submenu */}
-              {whatsappMenuOpen && (
-                <div className={cn(
-                  "mt-1 ml-4 space-y-1 border-l-2 border-green-500/20 pl-2",
-                  !sidebarOpen && "lg:hidden"
-                )}>
-                  {whatsappMenuItems.map((item) => {
-                    const isActive = location.pathname === item.path;
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        className={cn(
-                          "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 group relative",
-                          isActive
-                            ? "bg-green-500/10 text-green-500 border border-green-500/20"
-                            : "hover:bg-primary/5 text-muted-foreground hover:text-green-500"
-                        )}
-                      >
-                        <item.icon className="w-4 h-4 flex-shrink-0 transition-transform duration-300 group-hover:scale-110" />
-                        <span className="truncate text-sm font-medium">
-                          {item.label}
-                        </span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
             {/* Admin Section - Only for super_admin */}
             {(() => {
