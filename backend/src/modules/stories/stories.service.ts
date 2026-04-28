@@ -60,31 +60,50 @@ class StoriesService {
 
   private async getContactsWithStories(sock: ReturnType<typeof makeWASocket>): Promise<Array<{ jid: string; name?: string; phone?: string; avatar?: string }>> {
     try {
-      // Buscar status/stories disponíveis
-      // No Baileys, stories são tratados como mensagens no JID especial de status
+      console.log('[getContactsWithStories] Buscando stories ativos do WhatsApp');
+
       const statusJid = 'status@broadcast';
+      const contactsMap = new Map<string, { jid: string; name?: string; phone?: string; avatar?: string }>();
 
-      // Tentar buscar contatos do cache do WhatsApp
-      const contacts: Array<{ jid: string; name?: string; phone?: string; avatar?: string }> = [];
-
-      // Buscar do store de contatos
+      // Buscar do cache local de mensagens
       const store = (sock as any).store;
-      if (store?.contacts) {
-        for (const [jid, contact] of Object.entries(store.contacts)) {
-          if (jid.includes('@s.whatsapp.net')) {
-            contacts.push({
-              jid,
-              name: (contact as any).name || (contact as any).notify,
-              phone: jid.split('@')[0],
-              avatar: (contact as any).imgUrl,
-            });
+
+      if (store?.messages && store.messages[statusJid]) {
+        const statusMessages = store.messages[statusJid];
+        console.log(`[getContactsWithStories] ${Object.keys(statusMessages).length} mensagens de status no cache`);
+
+        for (const msg of Object.values(statusMessages)) {
+          const message = msg as any;
+          const participantJid = message.key?.participant;
+
+          if (participantJid && !contactsMap.has(participantJid)) {
+            const phone = participantJid.split('@')[0];
+            const name = message.pushName || phone;
+
+            // Verificar se a mensagem é das últimas 24 horas
+            const timestamp = (message.messageTimestamp as number) * 1000;
+            const now = Date.now();
+            const oneDayAgo = now - (24 * 60 * 60 * 1000);
+
+            if (timestamp > oneDayAgo) {
+              contactsMap.set(participantJid, {
+                jid: participantJid,
+                name,
+                phone,
+              });
+            }
           }
         }
+      } else {
+        console.log('[getContactsWithStories] Nenhuma mensagem de status no cache');
       }
+
+      const contacts = Array.from(contactsMap.values());
+      console.log(`[getContactsWithStories] ${contacts.length} contatos com stories ativos`);
 
       return contacts;
     } catch (error) {
-      console.error('Erro ao buscar contatos:', error);
+      console.error('Erro ao buscar contatos com stories:', error);
       return [];
     }
   }
@@ -117,26 +136,33 @@ class StoriesService {
 
   private async getStatusMessages(sock: ReturnType<typeof makeWASocket>, contactJid: string): Promise<any[]> {
     try {
-      // Tentar buscar do histórico de mensagens de status
-      // Nota: Baileys pode ter limitações aqui dependendo da versão
+      console.log(`[getStatusMessages] Buscando stories de ${contactJid}`);
+
+      const statusJid = 'status@broadcast';
       const messages: any[] = [];
 
-      // Verificar se há mensagens no store
+      // Buscar do cache local de mensagens
       const store = (sock as any).store;
-      if (store?.messages) {
-        const statusJid = 'status@broadcast';
+
+      if (store?.messages && store.messages[statusJid]) {
         const statusMessages = store.messages[statusJid];
 
-        if (statusMessages) {
-          for (const msg of Object.values(statusMessages)) {
-            const message = msg as any;
-            if (message.key?.participant === contactJid) {
+        for (const msg of Object.values(statusMessages)) {
+          const message = msg as any;
+          if (message.key?.participant === contactJid) {
+            // Verificar se é das últimas 24 horas
+            const timestamp = (message.messageTimestamp as number) * 1000;
+            const now = Date.now();
+            const oneDayAgo = now - (24 * 60 * 60 * 1000);
+
+            if (timestamp > oneDayAgo) {
               messages.push(message);
             }
           }
         }
       }
 
+      console.log(`[getStatusMessages] ${messages.length} stories de ${contactJid} no cache`);
       return messages;
     } catch (error) {
       console.error('Erro ao buscar mensagens de status:', error);
