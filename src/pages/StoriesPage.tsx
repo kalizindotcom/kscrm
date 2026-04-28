@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Image as ImageIcon,
-  Video,
   Download,
   X,
   ChevronLeft,
@@ -14,7 +13,6 @@ import {
   Eye,
   Loader2,
   RefreshCw,
-  MessageSquare,
 } from 'lucide-react';
 import { Card, CardContent, Button } from '@/components/ui/shared';
 import { cn } from '@/lib/utils';
@@ -22,34 +20,12 @@ import { toast } from 'sonner';
 import { useSessionStore } from '@/store/useSessionStore';
 import { SessionSelector } from '@/components/shared/SessionSelector';
 import { sessionService } from '@/services/sessionService';
-
-interface Story {
-  id: string;
-  contactName: string;
-  contactPhone: string;
-  contactAvatar?: string;
-  timestamp: Date;
-  type: 'image' | 'video' | 'text';
-  mediaUrl?: string;
-  text?: string;
-  backgroundColor?: string;
-  views?: number;
-  isViewed: boolean;
-}
-
-interface Contact {
-  id: string;
-  name: string;
-  phone: string;
-  avatar?: string;
-  stories: Story[];
-  hasUnviewed: boolean;
-}
+import { storiesService, StoryContact, Story } from '@/services/storiesService';
 
 export function StoriesPage() {
   const { sessions, setSessions, selectedSessionId, selectSession } = useSessionStore();
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [contacts, setContacts] = useState<StoryContact[]>([]);
+  const [selectedContact, setSelectedContact] = useState<StoryContact | null>(null);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -103,81 +79,16 @@ export function StoriesPage() {
   };
 
   const loadStories = async () => {
+    if (!activeSession) return;
+
     setLoading(true);
     try {
-      // Mock data - substituir por chamada real à API
-      const mockContacts: Contact[] = [
-        {
-          id: '1',
-          name: 'João Silva',
-          phone: '+55 11 91234-5678',
-          avatar: undefined,
-          hasUnviewed: true,
-          stories: [
-            {
-              id: 's1',
-              contactName: 'João Silva',
-              contactPhone: '+55 11 91234-5678',
-              timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-              type: 'image',
-              mediaUrl: 'https://picsum.photos/400/700?random=1',
-              views: 45,
-              isViewed: false,
-            },
-            {
-              id: 's2',
-              contactName: 'João Silva',
-              contactPhone: '+55 11 91234-5678',
-              timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000),
-              type: 'text',
-              text: 'Bom dia! 🌅\nQue dia incrível!',
-              backgroundColor: '#FF6B6B',
-              views: 32,
-              isViewed: false,
-            },
-          ],
-        },
-        {
-          id: '2',
-          name: 'Maria Santos',
-          phone: '+55 11 98765-4321',
-          hasUnviewed: false,
-          stories: [
-            {
-              id: 's3',
-              contactName: 'Maria Santos',
-              contactPhone: '+55 11 98765-4321',
-              timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
-              type: 'video',
-              mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-              views: 78,
-              isViewed: true,
-            },
-          ],
-        },
-        {
-          id: '3',
-          name: 'Pedro Costa',
-          phone: '+55 11 97777-7777',
-          hasUnviewed: true,
-          stories: [
-            {
-              id: 's4',
-              contactName: 'Pedro Costa',
-              contactPhone: '+55 11 97777-7777',
-              timestamp: new Date(Date.now() - 30 * 60 * 1000),
-              type: 'image',
-              mediaUrl: 'https://picsum.photos/400/700?random=2',
-              views: 12,
-              isViewed: false,
-            },
-          ],
-        },
-      ];
-
-      setContacts(mockContacts);
-    } catch (error) {
-      toast.error('Erro ao carregar stories');
+      const data = await storiesService.list(activeSession.id);
+      setContacts(data);
+    } catch (error: any) {
+      console.error('Erro ao carregar stories:', error);
+      toast.error(error?.message || 'Erro ao carregar stories');
+      setContacts([]);
     } finally {
       setLoading(false);
     }
@@ -190,22 +101,69 @@ export function StoriesPage() {
     toast.success('Stories atualizados!');
   };
 
-  const handleContactClick = (contact: Contact) => {
+  const handleContactClick = async (contact: StoryContact) => {
     setSelectedContact(contact);
     setCurrentStoryIndex(0);
     setProgress(0);
     setIsPlaying(true);
+
+    // Marcar primeiro story como visualizado
+    if (contact.stories.length > 0 && !contact.stories[0].isViewed && activeSession) {
+      try {
+        await storiesService.markViewed(activeSession.id, contact.stories[0].id);
+        // Atualizar estado local
+        setContacts(prev => prev.map(c => {
+          if (c.jid === contact.jid) {
+            const updatedStories = c.stories.map((s, idx) =>
+              idx === 0 ? { ...s, isViewed: true } : s
+            );
+            return {
+              ...c,
+              stories: updatedStories,
+              hasUnviewed: updatedStories.some(s => !s.isViewed),
+            };
+          }
+          return c;
+        }));
+      } catch (error) {
+        console.error('Erro ao marcar story como visualizado:', error);
+      }
+    }
   };
 
-  const handleNextStory = () => {
-    if (!selectedContact) return;
+  const handleNextStory = async () => {
+    if (!selectedContact || !activeSession) return;
 
     if (currentStoryIndex < selectedContact.stories.length - 1) {
-      setCurrentStoryIndex(currentStoryIndex + 1);
+      const nextIndex = currentStoryIndex + 1;
+      setCurrentStoryIndex(nextIndex);
       setProgress(0);
+
+      // Marcar próximo story como visualizado
+      const nextStory = selectedContact.stories[nextIndex];
+      if (!nextStory.isViewed) {
+        try {
+          await storiesService.markViewed(activeSession.id, nextStory.id);
+          setContacts(prev => prev.map(c => {
+            if (c.jid === selectedContact.jid) {
+              const updatedStories = c.stories.map((s, idx) =>
+                idx === nextIndex ? { ...s, isViewed: true } : s
+              );
+              return {
+                ...c,
+                stories: updatedStories,
+                hasUnviewed: updatedStories.some(s => !s.isViewed),
+              };
+            }
+            return c;
+          }));
+        } catch (error) {
+          console.error('Erro ao marcar story como visualizado:', error);
+        }
+      }
     } else {
       // Próximo contato
-      const currentIndex = contacts.findIndex((c) => c.id === selectedContact.id);
+      const currentIndex = contacts.findIndex((c) => c.jid === selectedContact.jid);
       if (currentIndex < contacts.length - 1) {
         handleContactClick(contacts[currentIndex + 1]);
       } else {
@@ -222,7 +180,7 @@ export function StoriesPage() {
       setProgress(0);
     } else {
       // Contato anterior
-      const currentIndex = contacts.findIndex((c) => c.id === selectedContact.id);
+      const currentIndex = contacts.findIndex((c) => c.jid === selectedContact.jid);
       if (currentIndex > 0) {
         const prevContact = contacts[currentIndex - 1];
         setSelectedContact(prevContact);
@@ -233,38 +191,50 @@ export function StoriesPage() {
   };
 
   const handleDownload = async (story: Story) => {
-    if (!story.mediaUrl) return;
+    if (!story.mediaUrl || !activeSession) return;
 
     try {
-      const response = await fetch(story.mediaUrl);
+      const url = storiesService.getMediaUrl(activeSession.id, story.id);
+      const response = await fetch(url);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = `story-${story.id}.${story.type === 'video' ? 'mp4' : 'jpg'}`;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
       toast.success('Story baixado com sucesso!');
     } catch (error) {
+      console.error('Erro ao baixar story:', error);
       toast.error('Erro ao baixar story');
     }
   };
 
   const handleReply = async () => {
-    if (!replyText.trim() || !selectedContact) return;
+    if (!replyText.trim() || !selectedContact || !activeSession) return;
+
+    const currentStory = selectedContact.stories[currentStoryIndex];
+    if (!currentStory) return;
 
     try {
-      // Implementar envio de resposta via API
+      await storiesService.reply(
+        activeSession.id,
+        currentStory.id,
+        selectedContact.jid,
+        replyText
+      );
       toast.success('Resposta enviada!');
       setReplyText('');
-    } catch (error) {
-      toast.error('Erro ao enviar resposta');
+    } catch (error: any) {
+      console.error('Erro ao enviar resposta:', error);
+      toast.error(error?.message || 'Erro ao enviar resposta');
     }
   };
 
-  const formatTimestamp = (date: Date) => {
+  const formatTimestamp = (dateString: string) => {
+    const date = new Date(dateString);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -358,7 +328,7 @@ export function StoriesPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {contacts.map((contact, index) => (
                   <motion.button
-                    key={contact.id}
+                    key={contact.jid}
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: index * 0.05 }}
@@ -367,39 +337,40 @@ export function StoriesPage() {
                     onClick={() => handleContactClick(contact)}
                     className="relative group"
                   >
-                    <div
-                      className={cn(
-                        'w-full aspect-[3/4] rounded-2xl overflow-hidden border-4 transition-all shadow-lg',
-                        contact.hasUnviewed
-                          ? 'border-gradient-to-br from-purple-500 via-pink-500 to-orange-500 shadow-primary/20'
-                          : 'border-gray-600 shadow-gray-900/20'
-                      )}
-                    >
-                      {contact.avatar ? (
-                        <img
-                          src={contact.avatar}
-                          alt={contact.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                          <span className="text-4xl font-bold text-primary">
-                            {contact.name[0]}
-                          </span>
+                    {/* Border gradient wrapper */}
+                    <div className={cn(
+                      'w-full aspect-[3/4] rounded-2xl p-1 transition-all shadow-lg',
+                      contact.hasUnviewed
+                        ? 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500'
+                        : 'bg-gray-600'
+                    )}>
+                      <div className="w-full h-full rounded-xl overflow-hidden bg-background">
+                        {contact.avatar ? (
+                          <img
+                            src={contact.avatar}
+                            alt={contact.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                            <span className="text-4xl font-bold text-primary">
+                              {contact.name[0]}
+                            </span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent rounded-xl" />
+                        <div className="absolute bottom-2 left-2 right-2">
+                          <p className="text-white text-sm font-semibold truncate drop-shadow-lg">
+                            {contact.name}
+                          </p>
+                          <p className="text-white/80 text-xs drop-shadow-lg">
+                            {contact.stories.length} {contact.stories.length === 1 ? 'story' : 'stories'}
+                          </p>
                         </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                      <div className="absolute bottom-2 left-2 right-2">
-                        <p className="text-white text-sm font-semibold truncate drop-shadow-lg">
-                          {contact.name}
-                        </p>
-                        <p className="text-white/80 text-xs drop-shadow-lg">
-                          {contact.stories.length} {contact.stories.length === 1 ? 'story' : 'stories'}
-                        </p>
+                        {contact.hasUnviewed && (
+                          <div className="absolute top-2 right-2 w-3 h-3 bg-primary rounded-full border-2 border-white shadow-lg animate-pulse" />
+                        )}
                       </div>
-                      {contact.hasUnviewed && (
-                        <div className="absolute top-2 right-2 w-3 h-3 bg-primary rounded-full border-2 border-white shadow-lg animate-pulse" />
-                      )}
                     </div>
                   </motion.button>
                 ))}
@@ -411,7 +382,7 @@ export function StoriesPage() {
 
       {/* Story Viewer Modal */}
       <AnimatePresence>
-        {selectedContact && currentStory && (
+        {selectedContact && currentStory && activeSession && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -501,17 +472,17 @@ export function StoriesPage() {
               transition={{ duration: 0.3 }}
               className="relative w-full max-w-md h-full max-h-[90vh] flex items-center justify-center"
             >
-              {currentStory.type === 'image' && (
+              {currentStory.type === 'image' && currentStory.mediaUrl && (
                 <img
-                  src={currentStory.mediaUrl}
+                  src={storiesService.getMediaUrl(activeSession.id, currentStory.id)}
                   alt="Story"
                   className="w-full h-full object-contain rounded-2xl"
                 />
               )}
 
-              {currentStory.type === 'video' && (
+              {currentStory.type === 'video' && currentStory.mediaUrl && (
                 <video
-                  src={currentStory.mediaUrl}
+                  src={storiesService.getMediaUrl(activeSession.id, currentStory.id)}
                   className="w-full h-full object-contain rounded-2xl"
                   autoPlay
                   loop
@@ -522,7 +493,7 @@ export function StoriesPage() {
               {currentStory.type === 'text' && (
                 <div
                   className="w-full h-full rounded-2xl flex items-center justify-center p-8"
-                  style={{ backgroundColor: currentStory.backgroundColor }}
+                  style={{ backgroundColor: currentStory.backgroundColor || '#1a1a1a' }}
                 >
                   <p className="text-white text-3xl font-bold text-center whitespace-pre-wrap">
                     {currentStory.text}
@@ -533,21 +504,18 @@ export function StoriesPage() {
               {/* Story Info */}
               <div className="absolute bottom-20 left-4 right-4 flex items-center justify-between text-white">
                 <div className="flex items-center gap-4">
-                  {currentStory.views !== undefined && (
-                    <div className="flex items-center gap-1 text-sm backdrop-blur-sm bg-black/30 px-3 py-1 rounded-full">
-                      <Eye className="w-4 h-4" />
-                      {currentStory.views}
-                    </div>
-                  )}
+                  {/* Views counter removed as it's not available from WhatsApp API */}
                 </div>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => handleDownload(currentStory)}
-                  className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
-                >
-                  <Download className="w-5 h-5" />
-                </motion.button>
+                {currentStory.mediaUrl && (
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleDownload(currentStory)}
+                    className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
+                  >
+                    <Download className="w-5 h-5" />
+                  </motion.button>
+                )}
               </div>
             </motion.div>
 

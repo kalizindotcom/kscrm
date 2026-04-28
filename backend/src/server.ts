@@ -26,6 +26,7 @@ import { groupsRoutes } from './modules/groups/groups.routes.js';
 import { reportsRoutes } from './modules/reports/reports.routes.js';
 import { templatesRoutes } from './modules/templates/templates.routes.js';
 import { debugRoutes } from './modules/debug/debug.routes.js';
+import { storiesRoutes } from './modules/stories/stories.routes.js';
 
 async function ensureRuntimeDirs() {
   await fs.mkdir(path.resolve(env.BAILEYS_AUTH_DIR), { recursive: true });
@@ -59,18 +60,19 @@ app.get('/health', async () => {
   return { ok: true, service: 'ks-csm-backend', timestamp: new Date().toISOString() };
 });
 
-await app.register(authRoutes);
-await app.register(adminRoutes);
-await app.register(contactsRoutes);
-await app.register(sessionsRoutes);
-await app.register(messagesRoutes);
-await app.register(conversationsRoutes);
-await app.register(campaignsRoutes);
-await app.register(groupsRoutes);
-await app.register(reportsRoutes);
-await app.register(templatesRoutes);
-await app.register(warmupRoutes);
-await app.register(debugRoutes);
+await app.register(authRoutes, { prefix: '/api/auth' });
+await app.register(adminRoutes, { prefix: '/api/admin' });
+await app.register(contactsRoutes, { prefix: '/api/contacts' });
+await app.register(sessionsRoutes, { prefix: '/api/sessions' });
+await app.register(messagesRoutes, { prefix: '/api/messages' });
+await app.register(conversationsRoutes, { prefix: '/api/conversations' });
+await app.register(campaignsRoutes, { prefix: '/api/campaigns' });
+await app.register(groupsRoutes, { prefix: '/api/groups' });
+await app.register(reportsRoutes, { prefix: '/api/reports' });
+await app.register(templatesRoutes, { prefix: '/api/templates' });
+await app.register(warmupRoutes, { prefix: '/api/warmup' });
+await app.register(debugRoutes, { prefix: '/api/debug' });
+await app.register(storiesRoutes, { prefix: '/api/stories' });
 
 app.setNotFoundHandler(async (_req, reply) => {
   return reply.status(404).send({
