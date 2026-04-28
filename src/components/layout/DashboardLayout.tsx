@@ -28,7 +28,11 @@ import {
   Flame,
   Shield,
   ChevronRight,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Target,
+  CheckSquare,
+  Zap,
+  TrendingUp
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../../store';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -52,6 +56,12 @@ const menuItems = [
   { icon: Flame, label: 'Aquecimento', path: '/warmup' },
   { icon: BarChart3, label: 'Relatórios', path: '/reports' },
   { icon: Settings, label: 'Configurações', path: '/settings' },
+];
+
+const crmMenuItems = [
+  { icon: Target, label: 'Pipeline', path: '/deals' },
+  { icon: CheckSquare, label: 'Tarefas', path: '/tasks' },
+  { icon: Zap, label: 'Automação', path: '/workflows' },
 ];
 
 const whatsappMenuItems = [
@@ -287,6 +297,62 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                           })}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* CRM Dropdown Menu - aparece após WhatsApp */}
+                  {isDashboard && (
+                    <div className="my-2">
+                      <button
+                        onClick={() => setWhatsappMenuOpen(!whatsappMenuOpen)}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative w-full",
+                          crmMenuItems.some(item => location.pathname === item.path)
+                            ? "bg-purple-500/10 text-purple-500 border border-purple-500/20"
+                            : "hover:bg-primary/5 text-muted-foreground hover:text-primary",
+                          !sidebarOpen && "lg:justify-center"
+                        )}
+                        title={!sidebarOpen ? 'CRM' : undefined}
+                      >
+                        <div className="relative flex items-center justify-center w-8 h-8 z-10">
+                          <TrendingUp className="w-5 h-5 flex-shrink-0 z-10 transition-transform duration-300 group-hover:scale-110" />
+                        </div>
+                        <div className="flex items-center flex-1 min-w-0 z-10 justify-between">
+                          <span className={cn(
+                            "truncate font-medium z-10 relative ml-2 transition-all duration-300",
+                            !sidebarOpen && "lg:hidden"
+                          )}>
+                            CRM
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Submenu CRM */}
+                      <div className={cn(
+                        "mt-1 ml-4 space-y-1 border-l-2 border-purple-500/20 pl-2",
+                        !sidebarOpen && "lg:hidden"
+                      )}>
+                        {crmMenuItems.map((subItem) => {
+                          const isActive = location.pathname === subItem.path;
+                          return (
+                            <Link
+                              key={subItem.path}
+                              to={subItem.path}
+                              className={cn(
+                                "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 group relative",
+                                isActive
+                                  ? "bg-purple-500/10 text-purple-500 border border-purple-500/20"
+                                  : "hover:bg-primary/5 text-muted-foreground hover:text-purple-500"
+                              )}
+                            >
+                              <subItem.icon className="w-4 h-4 flex-shrink-0 transition-transform duration-300 group-hover:scale-110" />
+                              <span className="truncate text-sm font-medium">
+                                {subItem.label}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </React.Fragment>

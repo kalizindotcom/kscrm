@@ -19,6 +19,9 @@ import ReportsPage from './pages/ReportsPage';
 import { LiveViewPage } from './pages/LiveViewPage';
 import { WarmupPage } from './pages/WarmupPage';
 import { StoriesPage } from './pages/StoriesPage';
+import { DealsPage } from './pages/DealsPage';
+import { TasksPage } from './pages/TasksPage';
+import { WorkflowsPage } from './pages/WorkflowsPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { UsersPage } from './pages/admin/UsersPage';
 import { UserFormPage } from './pages/admin/UserFormPage';
@@ -76,6 +79,11 @@ const App = () => (
               <Route path="/reports" element={<PrivateRoute><ReportsPage /></PrivateRoute>} />
               <Route path="/warmup" element={<PrivateRoute><WarmupPage /></PrivateRoute>} />
               <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+
+              {/* CRM Routes */}
+              <Route path="/deals" element={<PrivateRoute><DealsPage /></PrivateRoute>} />
+              <Route path="/tasks" element={<PrivateRoute><TasksPage /></PrivateRoute>} />
+              <Route path="/workflows" element={<PrivateRoute><WorkflowsPage /></PrivateRoute>} />
 
               {/* Admin Routes — only super_admin */}
               <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />

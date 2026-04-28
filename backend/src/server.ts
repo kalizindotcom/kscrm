@@ -27,6 +27,12 @@ import { reportsRoutes } from './modules/reports/reports.routes.js';
 import { templatesRoutes } from './modules/templates/templates.routes.js';
 import { debugRoutes } from './modules/debug/debug.routes.js';
 import { storiesRoutes } from './modules/stories/stories.routes.js';
+import { dealsRoutes } from './modules/deals/deals.routes.js';
+import { tasksRoutes } from './modules/tasks/tasks.routes.js';
+import { workflowsRoutes } from './modules/workflows/workflows.routes.js';
+import { segmentsRoutes } from './modules/segments/segments.routes.js';
+import { webhooksRoutes } from './modules/webhooks/webhooks.routes.js';
+import { notesRoutes } from './modules/notes/notes.routes.js';
 
 async function ensureRuntimeDirs() {
   await fs.mkdir(path.resolve(env.BAILEYS_AUTH_DIR), { recursive: true });
@@ -73,6 +79,12 @@ await app.register(templatesRoutes, { prefix: '/api/templates' });
 await app.register(warmupRoutes, { prefix: '/api/warmup' });
 await app.register(debugRoutes, { prefix: '/api/debug' });
 await app.register(storiesRoutes, { prefix: '/api/stories' });
+await app.register(dealsRoutes, { prefix: '/api/deals' });
+await app.register(tasksRoutes, { prefix: '/api/tasks' });
+await app.register(workflowsRoutes, { prefix: '/api/workflows' });
+await app.register(segmentsRoutes, { prefix: '/api/segments' });
+await app.register(webhooksRoutes, { prefix: '/api/webhooks' });
+await app.register(notesRoutes, { prefix: '/api/notes' });
 
 app.setNotFoundHandler(async (_req, reply) => {
   return reply.status(404).send({

@@ -96,6 +96,13 @@ model User {
   warmupPlans     WarmupPlan[]
   activityLogs    ActivityLog[]
   usageLogs       UsageLog[]
+  deals           Deal[]
+  tasks           Task[]
+  workflows       Workflow[]
+  segments        Segment[]
+  webhooks        Webhook[]
+  notes           Note[]
+  customFields    CustomField[]
 
   @@index([email])
 }
@@ -184,10 +191,22 @@ model Contact {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   phone           String
+  email           String?
   origin          String   @default("manual")
   status          String   @default("active") // active | inactive | pending
   optIn           String   @default("unknown") // granted | revoked | unknown
   tags            String[] @default([])
+
+  // CRM fields
+  company         String?
+  position        String?
+  assignedTo      String?
+  score           Int      @default(0) // Engagement score 0-100
+  lifecycle       String   @default("lead") // lead | customer | evangelist | churned
+
+  // Custom fields (JSON)
+  customFields    Json?
+
   lastInteraction DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -196,6 +215,8 @@ model Contact {
 
   @@unique([userId, phone])
   @@index([userId, status])
+  @@index([userId, assignedTo])
+  @@index([userId, lifecycle])
 }
 
 model ContactImport {
@@ -507,4 +528,272 @@ model AuditLog {
   timestamp DateTime @default(now())
 
   @@index([userId, timestamp])
+}
+
+// ─────────── CRM: Deals / Pipeline ───────────
+model Deal {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactId       String?
+
+  title           String
+  description     String?
+  value           Decimal?  @db.Decimal(10, 2)
+  currency        String    @default("BRL")
+
+  // Pipeline
+  stage           String    @default("lead") // lead | qualified | proposal | negotiation | won | lost
+  probability     Int       @default(0) // 0-100
+  expectedCloseDate DateTime?
+  actualCloseDate DateTime?
+
+  // Assignment
+  assignedTo      String?
+  priority        String    @default("medium") // low | medium | high | urgent
+
+  // Tracking
+  source          String?   // campaign | manual | import | api
+  lostReason      String?
+  tags            String[]  @default([])
+  customFields    Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  activities      DealActivity[]
+  notes           Note[]
+  tasks           Task[]
+
+  @@index([userId, stage])
+  @@index([userId, assignedTo])
+}
+
+model DealActivity {
+  id          String   @id @default(cuid())
+  dealId      String
+  deal        Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  type        String   // stage_change | note_added | task_completed | email_sent | call_made
+  description String
+  metadata    Json?
+  userId      String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([dealId, createdAt])
+}
+
+// ─────────── CRM: Tasks / Calendar ───────────
+model Task {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title           String
+  description     String?
+  type            String    @default("task") // task | call | email | meeting | follow_up
+  status          String    @default("pending") // pending | in_progress | completed | cancelled
+  priority        String    @default("medium") // low | medium | high | urgent
+
+  // Relations
+  contactId       String?
+  dealId          String?
+  deal            Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  // Assignment
+  assignedTo      String?
+
+  // Scheduling
+  dueDate         DateTime?
+  completedAt     DateTime?
+  reminderAt      DateTime?
+
+  // Recurrence
+  isRecurring     Boolean   @default(false)
+  recurrenceRule  String?   // RRULE format
+
+  tags            String[]  @default([])
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId, status, dueDate])
+  @@index([assignedTo, status])
+}
+
+// ─────────── CRM: Segments ───────────
+model Segment {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?
+
+  // Filters (JSON with conditions)
+  filters         Json      // { tags: ["vip"], status: "active", lastInteraction: { gte: "2024-01-01" } }
+
+  // Dynamic or static
+  isDynamic       Boolean   @default(true)
+
+  // Cached count (updated periodically)
+  contactCount    Int       @default(0)
+  lastCountUpdate DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// ─────────── Automation: Workflows ───────────
+model Workflow {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?
+  status          String    @default("inactive") // active | inactive | draft
+
+  // Trigger
+  trigger         Json      // { type: "contact_created", conditions: {...} }
+
+  // Actions (array of steps)
+  actions         Json      // [{ type: "send_message", delay: 3600, content: "..." }, ...]
+
+  // Stats
+  executionCount  Int       @default(0)
+  lastExecutedAt  DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  executions      WorkflowExecution[]
+
+  @@index([userId, status])
+}
+
+model WorkflowExecution {
+  id              String    @id @default(cuid())
+  workflowId      String
+  workflow        Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  contactId       String?
+  dealId          String?
+
+  status          String    @default("running") // running | completed | failed | cancelled
+  currentStep     Int       @default(0)
+
+  // Execution log
+  log             Json?
+  error           String?
+
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([workflowId, status])
+}
+
+// ─────────── Integrations: Webhooks ───────────
+model Webhook {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  url             String
+  method          String    @default("POST") // POST | GET | PUT
+
+  // Events to listen
+  events          String[]  // ["contact.created", "message.received", "campaign.completed"]
+
+  // Auth
+  secret          String?
+  headers         Json?     // Custom headers
+
+  status          String    @default("active") // active | inactive | failed
+
+  // Stats
+  lastTriggeredAt DateTime?
+  successCount    Int       @default(0)
+  failureCount    Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  logs            WebhookLog[]
+
+  @@index([userId, status])
+}
+
+model WebhookLog {
+  id              String    @id @default(cuid())
+  webhookId       String
+  webhook         Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  event           String
+  payload         Json
+  response        Json?
+  statusCode      Int?
+  error           String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([webhookId, createdAt])
+}
+
+// ─────────── Notes ───────────
+model Note {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  content         String
+
+  // Relations (polymorphic)
+  contactId       String?
+  dealId          String?
+  deal            Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  // Internal note (not visible to customer)
+  isInternal      Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId, contactId])
+  @@index([userId, dealId])
+}
+
+// ─────────── Custom Fields ───────────
+model CustomField {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  label           String
+  fieldType       String    // text | number | date | select | multiselect | boolean
+
+  // For which entity
+  entityType      String    // contact | deal | task
+
+  // Options for select/multiselect
+  options         String[]  @default([])
+
+  // Validation
+  isRequired      Boolean   @default(false)
+  defaultValue    String?
+
+  // Display
+  displayOrder    Int       @default(0)
+  isVisible       Boolean   @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, entityType, name])
+  @@index([userId, entityType])
 }
