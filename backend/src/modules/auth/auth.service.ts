@@ -11,14 +11,22 @@ interface TokenPayload {
 
 export async function login(email: string, password: string) {
   const identifier = email.trim();
+  console.log('[AUTH] Tentativa de login:', { identifier });
+
   const user = await prisma.user.findFirst({
     where: {
       OR: [{ email: identifier }, { name: { equals: identifier, mode: 'insensitive' } }],
     },
   });
+
+  console.log('[AUTH] Usuário encontrado:', user ? { id: user.id, email: user.email, name: user.name, hasPassword: !!user.passwordHash } : 'não encontrado');
+
   if (!user) throw new UnauthorizedError('Credenciais inválidas');
 
+  console.log('[AUTH] Comparando senha fornecida com hash armazenado...');
   const ok = await bcrypt.compare(password, user.passwordHash);
+  console.log('[AUTH] Resultado da comparação:', ok);
+
   if (!ok) throw new UnauthorizedError('Credenciais inválidas');
 
   const payload: TokenPayload = {
