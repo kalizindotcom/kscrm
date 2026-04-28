@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { storiesController } from './stories.controller';
+import { storiesController } from './stories.controller.js';
 import { requireAuth } from '../../middleware/auth.js';
 
 export async function storiesRoutes(fastify: FastifyInstance) {
