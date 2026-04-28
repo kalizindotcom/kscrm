@@ -35,7 +35,7 @@ setInterval(() => {
 }, 5 * 60_000).unref?.();
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/api/auth/login', async (req, reply) => {
+  app.post('/login', async (req, reply) => {
     const rl = rateLimit('login', req);
     if (!rl.ok) {
       reply.header('Retry-After', String(rl.retryAfter));
@@ -50,7 +50,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(result);
   });
 
-  app.post('/api/auth/refresh', async (req, reply) => {
+  app.post('/refresh', async (req, reply) => {
     const rl = rateLimit('refresh', req);
     if (!rl.ok) {
       reply.header('Retry-After', String(rl.retryAfter));
@@ -61,7 +61,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(result);
   });
 
-  app.post('/api/auth/logout', async (req, reply) => {
+  app.post('/logout', async (req, reply) => {
     const body = refreshSchema.parse(req.body);
     await service.logout(body.refreshToken);
 
@@ -73,7 +73,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  app.get('/api/auth/me', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/me', { preHandler: requireAuth }, async (req, reply) => {
     const user = await service.me(req.user!.sub);
     return reply.send(user);
   });
