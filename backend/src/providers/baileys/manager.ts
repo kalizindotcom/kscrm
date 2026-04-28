@@ -720,11 +720,21 @@ async function resolveLidToPhone(
 }
 
 export async function fetchGroups(sessionId: string): Promise<ResolvedGroup[]> {
+  logger.info({ sessionId }, '[fetchGroups] Iniciando busca de grupos');
+
   const sock = get(sessionId);
   const inst = instances.get(sessionId);
-  if (!sock || !inst) throw new Error('Session not connected');
 
+  if (!sock || !inst) {
+    logger.error({ sessionId, hasSock: !!sock, hasInst: !!inst }, '[fetchGroups] Session not connected');
+    throw new Error('Session not connected');
+  }
+
+  logger.info({ sessionId }, '[fetchGroups] Chamando groupFetchAllParticipating');
   const groups = await sock.groupFetchAllParticipating();
+  const groupCount = Object.keys(groups).length;
+  logger.info({ sessionId, groupCount }, '[fetchGroups] Grupos obtidos do WhatsApp');
+
   const results: ResolvedGroup[] = [];
 
   for (const g of Object.values(groups)) {

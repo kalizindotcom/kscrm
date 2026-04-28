@@ -30,47 +30,72 @@ export async function groupsRoutes(app: FastifyInstance) {
   });
 
   // ── Global sync ────────────────────────────────────────────────────────────
-  app.post('/sessions/:sessionId/groups/sync', async (req) => {
-    const { sessionId } = req.params as { sessionId: string };
-    const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
-    if (!session) throw new NotFoundError();
+  app.post('/sessions/:sessionId/groups/sync', async (req, reply) => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      req.log.info({ sessionId, userId: req.user!.sub }, '[groups.sync] Iniciando sincronização de grupos');
 
-    const groups = await baileys.fetchGroups(sessionId);
-    const ownJid = baileys.getOwnJid(sessionId);
+      const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
+      if (!session) {
+        req.log.error({ sessionId, userId: req.user!.sub }, '[groups.sync] Sessão não encontrada');
+        throw new NotFoundError();
+      }
 
-    const result: any[] = [];
-    for (const g of groups) {
-      // Participants come pre-resolved from manager.fetchGroups (phone JIDs when possible)
-      const admins = g.participants.filter((p) => p.admin).map((p) => p.id);
-      const members = g.participants.map((p) => p.id);
+      req.log.info({ sessionId, status: session.status }, '[groups.sync] Sessão encontrada');
 
-      const photo = await baileys.getProfilePictureUrl(sessionId, g.id);
-      const saved = await prisma.whatsAppGroup.upsert({
-        where: { sessionId_waGroupId: { sessionId, waGroupId: g.id } },
-        create: {
-          sessionId,
-          waGroupId: g.id,
-          name: g.subject,
-          description: g.desc ?? undefined,
-          memberCount: members.length,
-          admins,
-          members,
-          photo: photo ?? undefined,
-          isAdmin: ownJid ? admins.includes(ownJid) : false,
-        },
-        update: {
-          name: g.subject,
-          description: g.desc ?? undefined,
-          memberCount: members.length,
-          admins,
-          members,
-          photo: photo ?? undefined,
-          isAdmin: ownJid ? admins.includes(ownJid) : false,
-        },
-      });
-      result.push(saved);
+      if (session.status !== 'connected') {
+        req.log.error({ sessionId, status: session.status }, '[groups.sync] Sessão não está conectada');
+        return reply.status(400).send({ error: 'Sessão não está conectada', status: session.status });
+      }
+
+      req.log.info({ sessionId }, '[groups.sync] Buscando grupos do WhatsApp');
+      const groups = await baileys.fetchGroups(sessionId);
+      req.log.info({ sessionId, groupCount: groups.length }, '[groups.sync] Grupos obtidos');
+
+      const ownJid = baileys.getOwnJid(sessionId);
+      req.log.info({ sessionId, ownJid }, '[groups.sync] OwnJid obtido');
+
+      const result: any[] = [];
+      for (const g of groups) {
+        // Participants come pre-resolved from manager.fetchGroups (phone JIDs when possible)
+        const admins = g.participants.filter((p) => p.admin).map((p) => p.id);
+        const members = g.participants.map((p) => p.id);
+
+        req.log.info({ sessionId, groupId: g.id, groupName: g.subject, memberCount: members.length }, '[groups.sync] Processando grupo');
+
+        const photo = await baileys.getProfilePictureUrl(sessionId, g.id);
+        const saved = await prisma.whatsAppGroup.upsert({
+          where: { sessionId_waGroupId: { sessionId, waGroupId: g.id } },
+          create: {
+            sessionId,
+            waGroupId: g.id,
+            name: g.subject,
+            description: g.desc ?? undefined,
+            memberCount: members.length,
+            admins,
+            members,
+            photo: photo ?? undefined,
+            isAdmin: ownJid ? admins.includes(ownJid) : false,
+          },
+          update: {
+            name: g.subject,
+            description: g.desc ?? undefined,
+            memberCount: members.length,
+            admins,
+            members,
+            photo: photo ?? undefined,
+            isAdmin: ownJid ? admins.includes(ownJid) : false,
+          },
+        });
+        result.push(saved);
+      }
+
+      req.log.info({ sessionId, syncedCount: result.length }, '[groups.sync] Sincronização concluída');
+      return result;
+    } catch (error: any) {
+      req.log.error({ error: error.message, stack: error.stack }, '[groups.sync] Erro na sincronização');
+      return reply.status(500).send({ error: error.message || 'Erro ao sincronizar grupos' });
     }
-    return result;
   });
 
   // ── Sync individual group members ──────────────────────────────────────────
