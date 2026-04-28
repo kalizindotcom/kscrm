@@ -1,6 +1,6 @@
 import makeWASocket, { downloadMediaMessage, proto } from '@whiskeysockets/baileys';
 import * as baileys from '../../providers/baileys/manager.js';
-import { Story, StoryContact } from './stories.types';
+import { Story, StoryContact } from './stories.types.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';

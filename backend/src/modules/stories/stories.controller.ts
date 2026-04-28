@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { storiesService } from './stories.service';
+import { storiesService } from './stories.service.js';
 
 export const storiesController = {
   async listBySession(request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) {
