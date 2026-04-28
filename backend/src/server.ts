@@ -67,7 +67,7 @@ await app.register(sessionsRoutes, { prefix: '/api/sessions' });
 await app.register(messagesRoutes, { prefix: '/api/messages' });
 await app.register(conversationsRoutes, { prefix: '/api/conversations' });
 await app.register(campaignsRoutes, { prefix: '/api/campaigns' });
-await app.register(groupsRoutes, { prefix: '/api/groups' });
+await app.register(groupsRoutes, { prefix: '/api' });
 await app.register(reportsRoutes, { prefix: '/api/reports' });
 await app.register(templatesRoutes, { prefix: '/api/templates' });
 await app.register(warmupRoutes, { prefix: '/api/warmup' });
