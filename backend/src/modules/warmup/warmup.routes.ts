@@ -83,7 +83,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
   // ── List plans ──────────────────────────────────────────────────────────────
-  app.get('/api/warmup', async (req) => {
+  app.get('/', async (req) => {
     const userId = req.user!.sub;
     const plans = await prisma.warmupPlan.findMany({
       where: { userId },
@@ -93,7 +93,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Create plan ─────────────────────────────────────────────────────────────
-  app.post('/api/warmup', async (req, reply) => {
+  app.post('/', async (req, reply) => {
     const userId = req.user!.sub;
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -115,7 +115,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Get plan ────────────────────────────────────────────────────────────────
-  app.get('/api/warmup/:id', async (req, reply) => {
+  app.get('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -124,7 +124,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Update plan ─────────────────────────────────────────────────────────────
-  app.put('/api/warmup/:id', async (req, reply) => {
+  app.put('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -173,7 +173,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Delete plan ─────────────────────────────────────────────────────────────
-  app.delete('/api/warmup/:id', async (req, reply) => {
+  app.delete('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -184,7 +184,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Start ───────────────────────────────────────────────────────────────────
-  app.post('/api/warmup/:id/start', async (req, reply) => {
+  app.post('/:id/start', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -209,7 +209,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Pause ───────────────────────────────────────────────────────────────────
-  app.post('/api/warmup/:id/pause', async (req, reply) => {
+  app.post('/:id/pause', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -232,7 +232,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Stop ────────────────────────────────────────────────────────────────────
-  app.post('/api/warmup/:id/stop', async (req, reply) => {
+  app.post('/:id/stop', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
@@ -254,7 +254,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Logs ────────────────────────────────────────────────────────────────────
-  app.get('/api/warmup/:id/logs', async (req, reply) => {
+  app.get('/:id/logs', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const { page = 1, pageSize = 50 } = z
@@ -319,7 +319,7 @@ export async function warmupRoutes(app: FastifyInstance) {
   });
 
   // ── Stats summary ───────────────────────────────────────────────────────────
-  app.get('/api/warmup/:id/stats', async (req, reply) => {
+  app.get('/:id/stats', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const plan = await prisma.warmupPlan.findFirst({ where: { id, userId } });
