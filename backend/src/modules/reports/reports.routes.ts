@@ -6,7 +6,7 @@ import { requireAuth } from '../../middleware/auth.js';
 export async function reportsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  app.get('/api/dashboard/overview', async (req) => {
+  app.get('/dashboard/overview', async (req) => {
     const userId = req.user!.sub;
     const { sessionId } = z.object({ sessionId: z.string().optional() }).parse(req.query);
 
@@ -64,7 +64,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/api/reports/campaigns', async (req) => {
+  app.get('/campaigns', async (req) => {
     const userId = req.user!.sub;
     return prisma.campaign.findMany({
       where: { userId },
@@ -82,7 +82,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get('/api/reports/contacts', async (req) => {
+  app.get('/contacts', async (req) => {
     const userId = req.user!.sub;
     const [total, active, inactive, pending] = await Promise.all([
       prisma.contact.count({ where: { userId } }),
@@ -93,7 +93,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     return { total, active, inactive, pending };
   });
 
-  app.get('/api/reports/sessions', async (req) => {
+  app.get('/sessions', async (req) => {
     const userId = req.user!.sub;
     const rows = await prisma.session.findMany({ where: { userId } });
     return {
@@ -108,7 +108,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/api/reports/groups', async (req) => {
+  app.get('/groups', async (req) => {
     const userId = req.user!.sub;
     const sessions = await prisma.session.findMany({ where: { userId }, select: { id: true } });
     const groups = await prisma.whatsAppGroup.findMany({ where: { sessionId: { in: sessions.map((s) => s.id) } } });

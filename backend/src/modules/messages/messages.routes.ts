@@ -28,12 +28,12 @@ const sendButtonsSchema = z.object({
 export async function messagesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  app.post('/api/messages/send', async (req) => {
+  app.post('/send', async (req) => {
     const b = sendTextSchema.parse(req.body);
     return service.sendText(req.user!.sub, b.sessionId, b.phone, b.content, b.quotedMessageId);
   });
 
-  app.post('/api/messages/send-buttons', async (req) => {
+  app.post('/send-buttons', async (req) => {
     const b = sendButtonsSchema.parse(req.body);
     return service.sendButtons(req.user!.sub, b.sessionId, b.phone, {
       text: b.text,
@@ -42,7 +42,7 @@ export async function messagesRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post('/api/messages/send-media', async (req) => {
+  app.post('/send-media', async (req) => {
     const data = await (req as any).file();
     if (!data) throw new Error('Arquivo ausente');
     const buffer = await data.toBuffer();
@@ -56,7 +56,7 @@ export async function messagesRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post('/api/messages/:id/retry', async (req) => {
+  app.post('/:id/retry', async (req) => {
     const { id } = req.params as { id: string };
     return service.retry(req.user!.sub, id);
   });

@@ -7,12 +7,12 @@ import { NotFoundError } from '../../lib/errors.js';
 export async function templatesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  app.get('/api/templates', async (req) => {
+  app.get('/', async (req) => {
     const userId = req.user!.sub;
     return prisma.messageTemplate.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
   });
 
-  app.post('/api/templates', async (req, reply) => {
+  app.post('/', async (req, reply) => {
     const userId = req.user!.sub;
     const body = z
       .object({
@@ -28,7 +28,7 @@ export async function templatesRoutes(app: FastifyInstance) {
     return reply.status(201).send(template);
   });
 
-  app.put('/api/templates/:id', async (req) => {
+  app.put('/:id', async (req) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const body = z
@@ -46,7 +46,7 @@ export async function templatesRoutes(app: FastifyInstance) {
     return prisma.messageTemplate.update({ where: { id }, data: { ...body, version: { increment: 1 } } });
   });
 
-  app.delete('/api/templates/:id', async (req, reply) => {
+  app.delete('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const tpl = await prisma.messageTemplate.findFirst({ where: { id, userId } });

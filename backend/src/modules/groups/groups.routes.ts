@@ -74,7 +74,7 @@ export async function groupsRoutes(app: FastifyInstance) {
   });
 
   // ── Sync individual group members ──────────────────────────────────────────
-  app.post('/api/groups/:id/sync-members', async (req) => {
+  app.post('/:id/sync-members', async (req) => {
     const { id } = req.params as { id: string };
     const group = await prisma.whatsAppGroup.findUnique({ where: { id }, include: { session: true } });
     if (!group || group.session.userId !== req.user!.sub) throw new NotFoundError();
@@ -93,7 +93,7 @@ export async function groupsRoutes(app: FastifyInstance) {
   });
 
   // ── Export members ─────────────────────────────────────────────────────────
-  app.get('/api/groups/:id/export', async (req, reply) => {
+  app.get('/:id/export', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { format } = z.object({ format: z.enum(['csv', 'xlsx']).default('csv') }).parse(req.query);
 
@@ -139,7 +139,7 @@ export async function groupsRoutes(app: FastifyInstance) {
   });
 
   // ── Save members to contacts ───────────────────────────────────────────────
-  app.post('/api/groups/:id/save-to-contacts', async (req) => {
+  app.post('/:id/save-to-contacts', async (req) => {
     const { id } = req.params as { id: string };
     const { name } = z.object({ name: z.string().optional() }).parse(req.body);
 

@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 
 export async function debugRoutes(app: FastifyInstance) {
   // Endpoint temporário para debug - REMOVER EM PRODUÇÃO
-  app.get('/api/debug/check-admin', async (req, reply) => {
+  app.get('/check-admin', async (req, reply) => {
     try {
       const admin = await prisma.user.findUnique({
         where: { email: 'admin@kscsm.com' },
@@ -52,7 +52,7 @@ export async function debugRoutes(app: FastifyInstance) {
   });
 
   // Verificar token atual
-  app.get('/api/debug/verify-token', async (req, reply) => {
+  app.get('/verify-token', async (req, reply) => {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
       return { error: 'Token não fornecido' };

@@ -90,7 +90,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ─────────── Users ───────────
 
-  app.get('/api/admin/users', async (req) => {
+  app.get('/users', async (req) => {
     const query = z
       .object({
         search: z.string().optional(),
@@ -105,7 +105,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ─────────── Trial Users (deve vir ANTES de rotas com :id) ───────────
 
-  app.post('/api/admin/users/trial', async (req) => {
+  app.post('/users/trial', async (req) => {
     const body = z.object({
       name: z.string().min(3),
       email: z.string().email(),
@@ -122,12 +122,12 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.createTrialUser(body);
   });
 
-  app.get('/api/admin/users/:id', async (req) => {
+  app.get('/users/:id', async (req) => {
     const { id } = req.params as { id: string };
     return service.getUserDetails(id);
   });
 
-  app.post('/api/admin/users', async (req) => {
+  app.post('/users', async (req) => {
     const body = userCreateSchema.parse(req.body);
     return service.createUser({
       ...body,
@@ -135,52 +135,52 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
-  app.put('/api/admin/users/:id', async (req) => {
+  app.put('/users/:id', async (req) => {
     const { id } = req.params as { id: string };
     const body = userUpdateSchema.parse(req.body);
     return service.updateUser(id, body);
   });
 
-  app.delete('/api/admin/users/:id', async (req) => {
+  app.delete('/users/:id', async (req) => {
     const { id } = req.params as { id: string };
     return service.deleteUser(id);
   });
 
-  app.post('/api/admin/users/:id/suspend', async (req) => {
+  app.post('/users/:id/suspend', async (req) => {
     const { id } = req.params as { id: string };
     return service.suspendUser(id);
   });
 
   // ─────────── Plans ───────────
 
-  app.get('/api/admin/plans', async () => {
+  app.get('/plans', async () => {
     return service.listPlans();
   });
 
-  app.get('/api/admin/plans/:id', async (req) => {
+  app.get('/plans/:id', async (req) => {
     const { id } = req.params as { id: string };
     return service.getPlanDetails(id);
   });
 
-  app.post('/api/admin/plans', async (req) => {
+  app.post('/plans', async (req) => {
     const body = planCreateSchema.parse(req.body);
     return service.createPlan(body);
   });
 
-  app.put('/api/admin/plans/:id', async (req) => {
+  app.put('/plans/:id', async (req) => {
     const { id } = req.params as { id: string };
     const body = planUpdateSchema.parse(req.body);
     return service.updatePlan(id, body);
   });
 
-  app.delete('/api/admin/plans/:id', async (req) => {
+  app.delete('/plans/:id', async (req) => {
     const { id } = req.params as { id: string };
     return service.deletePlan(id);
   });
 
   // ─────────── Subscriptions ───────────
 
-  app.get('/api/admin/subscriptions', async (req) => {
+  app.get('/subscriptions', async (req) => {
     const query = z
       .object({
         userId: z.string().optional(),
@@ -192,7 +192,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.listSubscriptions(query);
   });
 
-  app.post('/api/admin/subscriptions', async (req) => {
+  app.post('/subscriptions', async (req) => {
     const body = subscriptionCreateSchema.parse(req.body);
     return service.createSubscription({
       ...body,
@@ -201,7 +201,7 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
-  app.put('/api/admin/subscriptions/:id', async (req) => {
+  app.put('/subscriptions/:id', async (req) => {
     const { id } = req.params as { id: string };
     const body = subscriptionUpdateSchema.parse(req.body);
     return service.updateSubscription(id, {
@@ -213,11 +213,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ─────────── Analytics ───────────
 
-  app.get('/api/admin/stats', async () => {
+  app.get('/stats', async () => {
     return service.getGlobalStats();
   });
 
-  app.get('/api/admin/usage', async (req) => {
+  app.get('/usage', async (req) => {
     const query = z
       .object({
         days: z.coerce.number().min(1).max(365).default(30),
@@ -227,7 +227,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return service.getUsageStats(query);
   });
 
-  app.get('/api/admin/activity', async (req) => {
+  app.get('/activity', async (req) => {
     const query = z
       .object({
         userId: z.string().optional(),
@@ -242,7 +242,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ─────────── Sessions ───────────
 
-  app.get('/api/admin/sessions', async (req) => {
+  app.get('/sessions', async (req) => {
     const query = z
       .object({
         userId: z.string().optional(),

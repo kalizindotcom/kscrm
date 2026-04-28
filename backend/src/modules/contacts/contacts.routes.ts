@@ -43,7 +43,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
   // ── List ─────────────────────────────────────────────────────────────────
-  app.get('/api/contacts', async (req) => {
+  app.get('/', async (req) => {
     const userId = req.user!.sub;
     const { search, status, page, pageSize, listId } = z
       .object({
@@ -82,14 +82,14 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Create ────────────────────────────────────────────────────────────────
-  app.post('/api/contacts', async (req) => {
+  app.post('/', async (req) => {
     const userId = req.user!.sub;
     const body = createSchema.parse(req.body);
     return prisma.contact.create({ data: { ...body, phone: normalizePhone(body.phone), userId } });
   });
 
   // ── Bulk delete by IDs ───────────────────────────────────────────────────
-  app.post('/api/contacts/bulk-delete', async (req, reply) => {
+  app.post('/bulk-delete', async (req, reply) => {
     const userId = req.user!.sub;
     const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
     const result = await prisma.contact.deleteMany({ where: { id: { in: ids }, userId } });
@@ -97,7 +97,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Delete ALL contacts (of this user) ───────────────────────────────────
-  app.delete('/api/contacts', async (req, reply) => {
+  app.delete('/', async (req, reply) => {
     const userId = req.user!.sub;
     const { search } = z.object({ search: z.string().optional() }).parse(req.query);
     const where: any = { userId };
@@ -109,13 +109,13 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Import history list ──────────────────────────────────────────────────
-  app.get('/api/contacts/imports', async (req) => {
+  app.get('/imports', async (req) => {
     const userId = req.user!.sub;
     return prisma.contactImport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 100 });
   });
 
   // ── Delete import and all its contacts ───────────────────────────────────
-  app.delete('/api/contacts/imports/:id', async (req, reply) => {
+  app.delete('/imports/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const imp = await prisma.contactImport.findFirst({ where: { id, userId } });
@@ -126,7 +126,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Import detail ────────────────────────────────────────────────────────
-  app.get('/api/contacts/imports/:id', async (req) => {
+  app.get('/imports/:id', async (req) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const imp = await prisma.contactImport.findFirst({ where: { id, userId } });
@@ -142,7 +142,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── CSV/JSON import ──────────────────────────────────────────────────────
-  app.post('/api/contacts/import', async (req) => {
+  app.post('/import', async (req) => {
     const userId = req.user!.sub;
     const file = await (req as any).file();
     if (!file) throw new Error('Arquivo ausente');
@@ -236,7 +236,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Export ───────────────────────────────────────────────────────────────
-  app.get('/api/contacts/export', async (req, reply) => {
+  app.get('/export', async (req, reply) => {
     const userId = req.user!.sub;
     const { format, importIds } = z
       .object({
@@ -268,7 +268,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Single contact by id ─────────────────────────────────────────────────
-  app.get('/api/contacts/:id', async (req, reply) => {
+  app.get('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const contact = await prisma.contact.findFirst({ where: { id, userId } });
@@ -277,7 +277,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Update ────────────────────────────────────────────────────────────────
-  app.put('/api/contacts/:id', async (req, reply) => {
+  app.put('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const body = createSchema.partial().parse(req.body);
@@ -289,7 +289,7 @@ export async function contactsRoutes(app: FastifyInstance) {
   });
 
   // ── Delete ────────────────────────────────────────────────────────────────
-  app.delete('/api/contacts/:id', async (req, reply) => {
+  app.delete('/:id', async (req, reply) => {
     const userId = req.user!.sub;
     const { id } = req.params as { id: string };
     const existing = await prisma.contact.findFirst({ where: { id, userId } });

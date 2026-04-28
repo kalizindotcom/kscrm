@@ -266,7 +266,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
   // ── List campaigns ─────────────────────────────────────────────────────────
-  app.get('/api/campaigns', async (req) => {
+  app.get('/', async (req) => {
     const { search, status } = z
       .object({
         search: z.string().optional(),
@@ -287,7 +287,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Get one with targets summary ───────────────────────────────────────────
-  app.get('/api/campaigns/:id', async (req) => {
+  app.get('/:id', async (req) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
 
@@ -318,7 +318,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── List campaign targets (paginated) ──────────────────────────────────────
-  app.get('/api/campaigns/:id/targets', async (req) => {
+  app.get('/:id/targets', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
 
@@ -344,7 +344,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Create campaign ────────────────────────────────────────────────────────
-  app.post('/api/campaigns', async (req) => {
+  app.post('/', async (req) => {
     const body = createSchema.parse(req.body);
     assertValidWindow(body.windowStart, body.windowEnd);
 
@@ -380,7 +380,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Update campaign ────────────────────────────────────────────────────────
-  app.put('/api/campaigns/:id', async (req) => {
+  app.put('/:id', async (req) => {
     const { id } = req.params as { id: string };
     const existing = await ensureCampaignOwned(id, req.user!.sub);
     if (existing.status === 'running' || isActive(id)) {
@@ -413,7 +413,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Delete campaign ────────────────────────────────────────────────────────
-  app.delete('/api/campaigns/:id', async (req, reply) => {
+  app.delete('/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
 
@@ -438,7 +438,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Duplicate campaign (copy with status='draft', no targets) ─────────────
-  app.post('/api/campaigns/:id/duplicate', async (req) => {
+  app.post('/:id/duplicate', async (req) => {
     const { id } = req.params as { id: string };
     const src = await ensureCampaignOwned(id, req.user!.sub);
     const { id: _omit, createdAt, updatedAt, startedAt, finishedAt, ...rest } = src as any;
@@ -459,7 +459,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Set / replace / append target list ─────────────────────────────────────
-  app.post('/api/campaigns/:id/targets', async (req) => {
+  app.post('/:id/targets', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     const body = targetSourceSchema.parse(req.body);
@@ -498,7 +498,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Upload CSV with targets ────────────────────────────────────────────────
-  app.post('/api/campaigns/:id/targets/csv', async (req, reply) => {
+  app.post('/:id/targets/csv', async (req, reply) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     const file: MultipartFile | undefined = await (req as any).file();
@@ -562,7 +562,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Clear targets ──────────────────────────────────────────────────────────
-  app.delete('/api/campaigns/:id/targets', async (req) => {
+  app.delete('/:id/targets', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     if (isActive(id)) {
@@ -577,7 +577,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Upload media ───────────────────────────────────────────────────────────
-  app.post('/api/campaigns/:id/media', {
+  app.post('/:id/media', {
     preHandler: requireAuth,
   }, async (req, reply) => {
     try {
@@ -650,7 +650,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Remove media ───────────────────────────────────────────────────────────
-  app.delete('/api/campaigns/:id/media', async (req) => {
+  app.delete('/:id/media', async (req) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
     if (camp.mediaUrl && camp.mediaUrl.startsWith('/uploads/')) {
@@ -664,7 +664,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Fire / schedule campaign ───────────────────────────────────────────────
-  app.post('/api/campaigns/:id/fire', async (req, reply) => {
+  app.post('/:id/fire', async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = fireSchema.parse(req.body);
     const camp = await ensureCampaignOwned(id, req.user!.sub);
@@ -718,7 +718,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Pause (soft-stop after current target) ────────────────────────────────
-  app.post('/api/campaigns/:id/pause', async (req) => {
+  app.post('/:id/pause', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     const stopped = pauseCampaign(id);
@@ -730,7 +730,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Resume (same as fire, but without requiring params) ───────────────────
-  app.post('/api/campaigns/:id/resume', async (req) => {
+  app.post('/:id/resume', async (req) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
 
@@ -767,7 +767,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Cancel (mark 'cancelled', keep history) ───────────────────────────────
-  app.post('/api/campaigns/:id/cancel', async (req) => {
+  app.post('/:id/cancel', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     const stopping = cancelCampaign(id);
@@ -778,7 +778,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Restart: reset all targets to pending, zero counters, keep targets ────
-  app.post('/api/campaigns/:id/restart', async (req) => {
+  app.post('/:id/restart', async (req) => {
     const { id } = req.params as { id: string };
     await ensureCampaignOwned(id, req.user!.sub);
     if (isActive(id)) {
@@ -789,7 +789,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── History: list terminal campaigns with summary stats ───────────────────
-  app.get('/api/campaigns/history', async (req) => {
+  app.get('/history', async (req) => {
     const { limit } = z
       .object({ limit: z.coerce.number().min(1).max(200).default(50) })
       .parse(req.query);
@@ -855,7 +855,7 @@ export async function campaignsRoutes(app: FastifyInstance) {
   });
 
   // ── Retry failed targets (resets them to pending, optionally fires) ───────
-  app.post('/api/campaigns/:id/retry-failed', async (req) => {
+  app.post('/:id/retry-failed', async (req) => {
     const { id } = req.params as { id: string };
     const camp = await ensureCampaignOwned(id, req.user!.sub);
     const { startNow } = z.object({ startNow: z.boolean().default(true) }).parse(req.body ?? {});
