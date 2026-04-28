@@ -22,7 +22,7 @@ export async function groupsRoutes(app: FastifyInstance) {
   };
 
   // ── List groups ────────────────────────────────────────────────────────────
-  app.get('/api/sessions/:sessionId/groups', async (req) => {
+  app.get('/sessions/:sessionId/groups', async (req) => {
     const { sessionId } = req.params as { sessionId: string };
     const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
     if (!session) throw new NotFoundError();
@@ -30,7 +30,7 @@ export async function groupsRoutes(app: FastifyInstance) {
   });
 
   // ── Global sync ────────────────────────────────────────────────────────────
-  app.post('/api/sessions/:sessionId/groups/sync', async (req) => {
+  app.post('/sessions/:sessionId/groups/sync', async (req) => {
     const { sessionId } = req.params as { sessionId: string };
     const session = await prisma.session.findFirst({ where: { id: sessionId, userId: req.user!.sub } });
     if (!session) throw new NotFoundError();

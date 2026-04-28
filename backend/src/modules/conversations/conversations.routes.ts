@@ -7,7 +7,7 @@ import { NotFoundError } from '../../lib/errors.js';
 export async function conversationsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  app.get('/api/conversations', async (req) => {
+  app.get('/', async (req) => {
     const { sessionId, status, search } = z
       .object({
         sessionId: z.string().optional(),
@@ -32,7 +32,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get('/api/conversations/:id', async (req) => {
+  app.get('/:id', async (req) => {
     const { id } = req.params as { id: string };
     const conv = await prisma.conversation.findUnique({
       where: { id },
@@ -42,7 +42,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return conv;
   });
 
-  app.get('/api/conversations/:id/messages', async (req) => {
+  app.get('/:id/messages', async (req) => {
     const { id } = req.params as { id: string };
     const { before, limit } = z
       .object({ before: z.string().optional(), limit: z.coerce.number().default(50) })
@@ -61,7 +61,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     });
   });
 
-  app.patch('/api/conversations/:id', async (req) => {
+  app.patch('/:id', async (req) => {
     const { id } = req.params as { id: string };
     const body = z
       .object({ status: z.enum(['open', 'pending', 'resolved']).optional(), unreadCount: z.number().optional() })
@@ -73,7 +73,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return prisma.conversation.update({ where: { id }, data: body });
   });
 
-  app.delete('/api/conversations/:id', async (req, reply) => {
+  app.delete('/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const conv = await prisma.conversation.findUnique({ where: { id }, include: { session: true } });
     if (!conv || conv.session.userId !== req.user!.sub) throw new NotFoundError();
@@ -81,7 +81,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  app.get('/api/conversations/:id/export', async (req, reply) => {
+  app.get('/:id/export', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { format } = z.object({ format: z.enum(['csv', 'txt']).default('txt') }).parse(req.query);
     const conv = await prisma.conversation.findUnique({ where: { id }, include: { session: true } });
@@ -110,7 +110,7 @@ export async function conversationsRoutes(app: FastifyInstance) {
     return lines;
   });
 
-  app.post('/api/conversations/:id/block', async (req, reply) => {
+  app.post('/:id/block', async (req, reply) => {
     const { id } = req.params as { id: string };
     const conv = await prisma.conversation.findUnique({ where: { id }, include: { session: true } });
     if (!conv || conv.session.userId !== req.user!.sub) throw new NotFoundError();
