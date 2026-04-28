@@ -134,7 +134,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
           webhookId: id,
           event: 'webhook.test',
           payload: testPayload,
-          response: responseData ? { body: responseData } : null,
+          response: responseData ? { body: responseData } : undefined,
           statusCode: response.status,
         },
       });
