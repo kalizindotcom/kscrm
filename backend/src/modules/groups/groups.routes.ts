@@ -175,6 +175,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     const groupTag = group.name.replace(/[^\w\s]/g, '').trim() || group.name;
 
     const allJids = [...new Set([...group.admins, ...group.members])];
+    const validPhones = allJids.map(cleanJidPhone).filter((p) => p.length > 0);
 
     const userId = req.user!.sub;
     const imp = await prisma.contactImport.create({
@@ -183,14 +184,12 @@ export async function groupsRoutes(app: FastifyInstance) {
         name: importName,
         filename: `${importName}.csv`,
         status: 'processing',
-        contactCount: allJids.length,
+        contactCount: validPhones.length,
       },
     });
 
     let processed = 0;
-    for (const jid of allJids) {
-      const phone = cleanJidPhone(jid);
-      if (!phone) continue;
+    for (const phone of validPhones) {
       try {
         await prisma.contact.upsert({
           where: { userId_phone: { userId, phone } },

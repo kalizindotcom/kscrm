@@ -626,8 +626,6 @@ const WhatsAppPreview: React.FC<{
   };
 
   useEffect(() => {
-    // Removed: contactService.list({ pageSize: 500 }) - not used anywhere
-    // setAvailableContacts is never used in the component
     templateService
       .list()
       .then(setTemplates)
@@ -641,7 +639,15 @@ const WhatsAppPreview: React.FC<{
         setImportsList(mapped);
       })
       .catch(() => setImportsList([]));
-  }, []);
+    // Load existing target count so the fire button is enabled when targets
+    // were already added (e.g. via "Salvar para agenda" from the Groups page).
+    campaignService.get(campaign.id)
+      .then((detail) => {
+        const total = detail.targetTotal ?? 0;
+        if (total > 0) setContactsCount(total);
+      })
+      .catch(() => undefined);
+  }, [campaign.id]);
 
   useEffect(() => {
     if (sessions.length > 0) return;
